@@ -12,10 +12,12 @@ COPY apps/api/package.json apps/api/
 COPY apps/web/package.json apps/web/
 COPY apps/worker/package.json apps/worker/
 COPY packages/db/package.json packages/db/
+COPY packages/env/package.json packages/env/
 COPY packages/shared/package.json packages/shared/
 RUN pnpm install --frozen-lockfile --filter @kanban/db...
 
 COPY packages/db packages/db
+COPY packages/env packages/env
 RUN pnpm --filter @kanban/db run build
 
 # ---- Stage 2: runtime ---------------------------------------------------------------------

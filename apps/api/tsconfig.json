@@ -1,7 +1,11 @@
 {
   "extends": "../../tsconfig.base.json",
   "compilerOptions": {
-    "types": ["node"]
+    "types": ["node"],
+    // NestJS decorators. Metadata emission is off on purpose: the app is bundled with esbuild,
+    // which cannot emit it, so every injected dependency uses an explicit @Inject(token).
+    "experimentalDecorators": true,
+    "emitDecoratorMetadata": false
   },
-  "include": ["src"]
+  "include": ["src", "test", "vitest.config.ts"]
 }

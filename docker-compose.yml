@@ -1,5 +1,31 @@
 # Full stack definition. Services are added block by block; see README for the final layout.
 # All configuration comes from .env (see .env.example); there are no secrets in this file.
+# Both API instances run the same image; the load balancer in front of them comes later.
+x-api: &api
+  build:
+    context: .
+    dockerfile: apps/api/Dockerfile
+  image: kanban-api:local
+  restart: unless-stopped
+  depends_on:
+    init:
+      condition: service_completed_successfully
+    redis:
+      condition: service_healthy
+    minio:
+      condition: service_healthy
+    minio-setup:
+      condition: service_completed_successfully
+  volumes:
+    # The app reads its configuration only from this file (see apps/api/src/env.ts).
+    - ./.env:/app/.env:ro
+  healthcheck:
+    test: ['CMD', 'wget', '-qO-', 'http://127.0.0.1:3001/health']
+    interval: 5s
+    timeout: 3s
+    retries: 10
+    start_period: 10s
+
 services:
   postgres:
     image: postgres:16-alpine
@@ -30,6 +56,57 @@ services:
       # The app reads its configuration only from this file (see packages/db/src/env.ts).
       - ./.env:/app/.env:ro
 
+  redis:
+    image: redis:7-alpine
+    restart: unless-stopped
+    environment:
+      REDIS_PASSWORD: ${REDIS_PASSWORD:?REDIS_PASSWORD is required, see .env.example}
+    command: ['sh', '-c', 'exec redis-server --requirepass "$$REDIS_PASSWORD" --appendonly yes']
+    volumes:
+      - redis-data:/data
+    healthcheck:
+      test: ['CMD-SHELL', 'redis-cli -a "$$REDIS_PASSWORD" --no-auth-warning ping | grep -q PONG']
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+  # MinIO no longer publishes official images; this is the maintained community fork.
+  minio:
+    image: pgsty/minio:RELEASE.2026-08-04T00-00-00Z
+    restart: unless-stopped
+    environment:
+      MINIO_ROOT_USER: ${MINIO_ROOT_USER:?MINIO_ROOT_USER is required, see .env.example}
+      MINIO_ROOT_PASSWORD: ${MINIO_ROOT_PASSWORD:?MINIO_ROOT_PASSWORD is required, see .env.example}
+    command: server /data
+    volumes:
+      - minio-data:/data
+    healthcheck:
+      test: ['CMD', 'mc', 'ready', 'local']
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+  # One-shot: creates the bucket if it does not exist yet, then exits. Safe to run again.
+  minio-setup:
+    image: pgsty/minio:RELEASE.2026-08-04T00-00-00Z
+    restart: 'no'
+    depends_on:
+      minio:
+        condition: service_healthy
+    environment:
+      MINIO_ROOT_USER: ${MINIO_ROOT_USER}
+      MINIO_ROOT_PASSWORD: ${MINIO_ROOT_PASSWORD}
+      S3_BUCKET: ${S3_BUCKET:-kanban-files}
+    entrypoint: ['/bin/sh', '-c']
+    command:
+      - mc alias set local http://minio:9000 "$$MINIO_ROOT_USER" "$$MINIO_ROOT_PASSWORD" && mc mb --ignore-existing "local/$$S3_BUCKET"
+
+  api1:
+    <<: *api
+
+  api2:
+    <<: *api
+
   # Development helper, started only when COMPOSE_PROFILES=dev is set in .env.
   # Forwards a host port (127.0.0.1 only) to PostgreSQL. Not part of the real stack.
   postgres-expose:
@@ -45,3 +122,5 @@ services:
 
 volumes:
   postgres-data:
+  redis-data:
+  minio-data:

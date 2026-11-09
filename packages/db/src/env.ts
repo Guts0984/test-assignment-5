@@ -1,8 +1,7 @@
-import { existsSync, readFileSync } from 'node:fs';
-import { dirname, join, resolve } from 'node:path';
-import { parseEnv } from 'node:util';
-
+import { describeEnvProblems, readDotEnv } from '@kanban/env';
 import { z } from 'zod';
+
+import { postgresUrl } from './client';
 
 /**
  * The single gate between the `.env` file and the rest of the code: raw text goes in, a
@@ -27,42 +26,19 @@ const schema = z.object({
   SEED_PASSWORD: z.string().min(8),
 });
 
-/** Walks up from `startDir` and returns the nearest `.env` file (never `.env.example`). */
-const findEnvFile = (startDir: string): string | undefined => {
-  let dir = resolve(startDir);
-  for (;;) {
-    const candidate = join(dir, '.env');
-    if (existsSync(candidate)) return candidate;
-    const parent = dirname(dir);
-    if (parent === dir) return undefined;
-    dir = parent;
-  }
-};
-
 const loadEnv = () => {
-  const file = findEnvFile(process.cwd());
-  if (!file) throw new Error('No .env file found. Create it with: cp .env.example .env');
-
-  const result = schema.safeParse(parseEnv(readFileSync(file, 'utf8')));
-  if (!result.success) {
-    const problems = result.error.issues
-      .map((issue) => `${issue.path.join('.')}: ${issue.message}`)
-      .join('; ');
-    throw new Error(`Invalid .env: ${problems}`);
-  }
+  const result = schema.safeParse(readDotEnv());
+  if (!result.success) throw new Error(`Invalid .env: ${describeEnvProblems(result.error.issues)}`);
 
   const values = result.data;
-  const credentials = `${encodeURIComponent(values.POSTGRES_USER)}:${encodeURIComponent(values.POSTGRES_PASSWORD)}`;
-  return {
+  const connection = {
     user: values.POSTGRES_USER,
     password: values.POSTGRES_PASSWORD,
     database: values.POSTGRES_DB,
     host: values.POSTGRES_HOST,
     port: values.POSTGRES_PORT,
-    seedPassword: values.SEED_PASSWORD,
-    /** Connection string built from the parts above, with credentials URL-encoded. */
-    url: `postgres://${credentials}@${values.POSTGRES_HOST}:${values.POSTGRES_PORT}/${encodeURIComponent(values.POSTGRES_DB)}`,
   };
+  return { ...connection, seedPassword: values.SEED_PASSWORD, url: postgresUrl(connection) };
 };
 
 export const env = loadEnv();

@@ -28,6 +28,18 @@ export type DatabaseHandle = {
   close: () => Promise<void>;
 };
 
+export type PostgresConnection = {
+  user: string;
+  password: string;
+  database: string;
+  host: string;
+  port: number;
+};
+
+/** Connection string with credentials URL-encoded (passwords may contain `@`, `:` or `/`). */
+export const postgresUrl = ({ user, password, database, host, port }: PostgresConnection): string =>
+  `postgres://${encodeURIComponent(user)}:${encodeURIComponent(password)}@${host}:${port}/${encodeURIComponent(database)}`;
+
 const noop = (): void => undefined;
 
 /**

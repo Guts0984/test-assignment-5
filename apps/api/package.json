@@ -4,6 +4,40 @@
   "version": "0.0.0",
   "scripts": {
     "typecheck": "tsc --noEmit -p tsconfig.json",
-    "test": "vitest run --passWithNoTests"
-  }
+    "test": "vitest run --passWithNoTests",
+    "build": "esbuild src/main.ts --bundle --platform=node --target=node22 --format=esm --outfile=dist/main.mjs --external:@nestjs/microservices --external:@nestjs/websockets --external:@nestjs/websockets/* --external:@nestjs/microservices/* --external:class-validator --external:class-transformer --external:@fastify/static --external:@fastify/view --external:cache-manager --external:swagger-ui-dist --banner:js=\"import { createRequire as __cr } from \\\"node:module\\\"; const require = __cr(import.meta.url);\" --legal-comments=none"
+  },
+  "dependencies": {
+    "@aws-sdk/client-s3": "3.1164.0",
+    "@aws-sdk/s3-presigned-post": "3.1164.0",
+    "@aws-sdk/s3-request-presigner": "3.1164.0",
+    "@kanban/db": "workspace:*",
+    "@kanban/env": "workspace:*",
+    "@kanban/shared": "workspace:*",
+    "@nestjs/common": "12.4.0",
+    "@nestjs/core": "12.4.0",
+    "@nestjs/platform-express": "12.4.0",
+    "@nestjs/swagger": "12.1.1",
+    "@socket.io/redis-adapter": "8.3.0",
+    "drizzle-orm": "0.45.4",
+    "file-type": "22.3.0",
+    "ioredis": "6.0.0",
+    "reflect-metadata": "0.2.2",
+    "rxjs": "7.8.2",
+    "socket.io": "4.8.4",
+    "zod": "4.6.7"
+  },
+  "devDependencies": {
+    "@kanban/db": "workspace:*",
+    "@nestjs/testing": "12.4.0",
+    "@testcontainers/minio": "12.2.1",
+    "@testcontainers/postgresql": "12.2.1",
+    "@testcontainers/redis": "12.2.1",
+    "@types/express": "5.0.6",
+    "esbuild": "0.28.2",
+    "socket.io-client": "4.8.4",
+    "testcontainers": "12.2.1",
+    "tsx": "4.23.15"
+  },
+  "type": "module"
 }

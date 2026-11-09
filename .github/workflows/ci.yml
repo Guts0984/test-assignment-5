@@ -68,6 +68,52 @@ jobs:
           counts=$(docker compose exec -T postgres sh -c 'psql -U "$POSTGRES_USER" -d "$POSTGRES_DB" -tA -c "select count(*) from users"')
           test "$counts" = "4"
 
+      - name: Start the whole stack
+        run: docker compose up --build -d --wait
+
+      - name: Both API instances are ready
+        run: |
+          for api in api1 api2; do
+            docker compose exec -T "$api" wget -qO- http://127.0.0.1:3001/ready
+            echo
+          done
+
+      # Socket.IO must be present in the built image and WebSocket-only (no long-polling fallback).
+      - name: Socket.IO is served by the built image
+        run: |
+          docker compose exec -T api1 node -e "fetch('http://127.0.0.1:3001/socket.io/?EIO=4&transport=polling').then(async (r) => { const t = await r.text(); console.log(r.status, t); process.exit(r.status === 400 && t.includes('Transport unknown') ? 0 : 1); })"
+
+      # Acceptance check 15: restarting PostgreSQL, then Redis, must not take the API down.
+      - name: Restart PostgreSQL and Redis under the running APIs
+        run: |
+          wait_ready() {
+            for _ in $(seq 1 45); do
+              if docker compose exec -T "$1" wget -qO /dev/null http://127.0.0.1:3001/ready 2>/dev/null; then return 0; fi
+              sleep 1
+            done
+            echo "$1 did not become ready again"; return 1
+          }
+          docker compose restart postgres
+          wait_ready api1
+          wait_ready api2
+          docker compose restart redis
+          wait_ready api1
+          wait_ready api2
+          for api in api1 api2; do
+            restarts=$(docker inspect -f '{{.RestartCount}}' "$(docker compose ps -q "$api")")
+            echo "$api restarts: $restarts"
+            test "$restarts" = "0"
+          done
+
+      # Acceptance check 15: SIGTERM ends the process cleanly with exit code 0.
+      - name: SIGTERM stops an API instance with exit code 0
+        run: |
+          docker compose kill -s SIGTERM api1
+          sleep 3
+          code=$(docker inspect -f '{{.State.ExitCode}}' "$(docker compose ps -a -q api1)")
+          echo "api1 exit code: $code"
+          test "$code" = "0"
+
       - name: Logs on failure
         if: failure()
         run: docker compose logs --no-color

@@ -19,14 +19,14 @@ export const startTestDatabase = async (): Promise<TestDatabase> => {
   await runMigrations(migrator.pool);
   await migrator.close();
 
-  const main = createDatabase({ url, maxConnections: 20 });
+  const main = createDatabase({ url, maxConnections: 20, connectTimeoutMs: 30_000 });
   const extra: DatabaseHandle[] = [];
 
   return {
     ...main,
     url,
     connect: (options) => {
-      const handle = createDatabase({ url, ...options });
+      const handle = createDatabase({ url, connectTimeoutMs: 30_000, ...options });
       extra.push(handle);
       return handle;
     },
