@@ -177,3 +177,94 @@ jobs:
       - name: Tear down
         if: always()
         run: docker compose down -v
+
+  # One job per browser, in parallel: each has its own stack and runs the whole suite three
+  # times in a row on it (the assignment's "3 runs in a row without restarting the stack").
+  e2e:
+    name: End-to-end (${{ matrix.browser }})
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    strategy:
+      fail-fast: false
+      matrix:
+        browser: [chromium, firefox, webkit]
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Create .env
+        run: cp .env.example .env
+
+      # All browsers of the suite share one address, so the per-address limits are raised for this
+      # run only; the defaults in the compose file are the real values.
+      - name: Raise the per-address limits for the test run
+        run: |
+          {
+            echo "PAGE_RATE_PER_SECOND=300"
+            echo "API_RATE_PER_SECOND=900"
+            echo "RATE_LIMIT_PER_MINUTE=20000"
+            echo "AUTH_RATE_LIMIT_PER_MINUTE=1000"
+            echo "DIGEST_COLLECT_SECONDS=3"
+          } >> .env
+
+      - name: Start the whole stack
+        run: docker compose up --build -d --wait
+
+      # The official image carries Chromium, Firefox and WebKit (the Safari engine).
+      - name: Run the e2e suite three times in a row on this stack
+        run: |
+          docker run --rm --network host --ipc=host -v "$PWD":/work -w /work \
+            -e BASE_URL=http://localhost:8080 -e MAILPIT_URL=http://localhost:8025 \
+            mcr.microsoft.com/playwright:v1.64.1-noble \
+            bash -c "npm install -g pnpm@12.6.0 && pnpm install --frozen-lockfile --filter @kanban/e2e... && cd e2e && npx playwright test --project=${{ matrix.browser }} --repeat-each=3"
+
+      - name: Playwright traces and screenshots
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: playwright-results-${{ matrix.browser }}
+          path: e2e/test-results
+
+      - name: Logs on failure
+        if: failure()
+        run: docker compose logs --no-color
+
+      - name: Tear down
+        if: always()
+        run: docker compose down -v
+
+  # A malicious and a good visitor at the same time, from two containers (so nginx sees two
+  # addresses), against the stack with the real limits. See e2e/stress/run.sh for what is checked:
+  # the flood is refused per address, the good visitor never is, the load and the CPU are spread
+  # over both API instances, nothing returns a 5xx, nothing restarts.
+  stress:
+    name: Stress test (flooding visitor and normal visitor)
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version-file: .nvmrc
+
+      - name: Install the e2e dependencies
+        run: |
+          npm install -g pnpm@12.6.0
+          pnpm install --frozen-lockfile --filter @kanban/e2e...
+
+      - name: Create .env
+        run: cp .env.example .env
+
+      - name: Start the whole stack (real limits)
+        run: docker compose up --build -d --wait
+
+      - name: Stress test
+        run: bash e2e/stress/run.sh
+
+      - name: Logs on failure
+        if: failure()
+        run: docker compose logs --no-color
+
+      - name: Tear down
+        if: always()
+        run: docker compose down -v

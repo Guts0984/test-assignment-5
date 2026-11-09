@@ -21,6 +21,7 @@ test('search finds cards and comments with the matching words highlighted', asyn
 
   const { page } = await as('alice');
   await page.goto('/search');
+  await hydrated(page.getByLabel('Search cards and comments'));
   await page.getByLabel('Search cards and comments').fill(token);
   await expect(page.getByRole('link', { name: new RegExp(`Plan ${token}`) }).first()).toBeVisible();
   await expect(page.getByText('Comment', { exact: true })).toBeVisible();
@@ -45,10 +46,10 @@ test('typing is not searched letter by letter, and an old answer never replaces 
     await route.continue();
   });
   await page.goto('/search');
-  await hydrated(page);
   const box = page.getByLabel('Search cards and comments');
+  await hydrated(box);
   await box.pressSequentially('roadmap', { delay: 40 });
-  await page.waitForTimeout(500);
+  await expect.poll(() => queries, { timeout: 10_000 }).toContain('roadmap'); // the pause in typing was noticed
   await box.fill('sprint');
   await expect(page.getByText('Sprint', { exact: false }).first()).toBeVisible();
   await page.waitForTimeout(2_500); // long enough for the slow, old answer to have arrived
@@ -63,6 +64,7 @@ test('search only offers workspaces the person belongs to, and finds nothing fro
 }) => {
   const alice = await as('alice'); // member of Acme Product only
   await alice.page.goto('/search');
+  await hydrated(alice.page.getByLabel('Search cards and comments'));
   const options = await alice.page.getByLabel('Workspace').locator('option').allTextContents();
   expect(options).toEqual(['Acme Product']);
 });

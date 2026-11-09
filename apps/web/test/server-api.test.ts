@@ -124,6 +124,27 @@ describe('answers', () => {
   });
 });
 
+describe('a visitor who is rate limited', () => {
+  it('is sent to a plain explanation page, not shown a server error, by both loaders', async () => {
+    server.use(
+      http.get('http://api.test/limited', () =>
+        HttpResponse.json({ error: { code: 'rate_limited', message: 'x' } }, { status: 429 }),
+      ),
+    );
+    await expect(loadPrivate('/limited')).rejects.toThrow('REDIRECT /slow-down');
+    await expect(loadPublic('/limited')).rejects.toThrow('REDIRECT /slow-down');
+  });
+
+  it('other failures of the API are still real errors', async () => {
+    server.use(
+      http.get('http://api.test/broken', () =>
+        HttpResponse.json({ error: { code: 'internal_error', message: 'x' } }, { status: 500 }),
+      ),
+    );
+    await expect(loadPrivate('/broken')).rejects.toThrow('The API answered 500');
+  });
+});
+
 describe('the rule behind it', () => {
   it('only the two API clients call fetch (a second place could forget the address)', () => {
     const root = join(import.meta.dirname, '..', 'src');

@@ -8,7 +8,15 @@ import { NextResponse, type NextRequest } from 'next/server';
  * src/shared/lib/server-api.ts, so there is nothing here that could be counted against the web
  * server's own address.
  */
-const PUBLIC_PREFIXES = ['/login', '/register', '/invite/', '/healthz', '/_next', '/favicon'];
+const PUBLIC_PREFIXES = [
+  '/login',
+  '/register',
+  '/invite/',
+  '/healthz',
+  '/slow-down',
+  '/_next',
+  '/favicon',
+];
 
 export function proxy(request: NextRequest) {
   const { pathname, search } = request.nextUrl;

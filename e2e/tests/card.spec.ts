@@ -85,6 +85,7 @@ test('a comment can mention a teammate, and the mention is highlighted', async (
 
 test('a file is attached with progress and can be downloaded with the same content', async ({
   as,
+  browserName,
 }) => {
   const { path } = await newCard('With a file');
   const { page } = await as('alice');
@@ -93,6 +94,20 @@ test('a file is attached with progress and can be downloaded with the same conte
     .getByLabel('Attach an image or PDF (up to 10 MB)')
     .setInputFiles({ name: 'pixel.png', mimeType: 'image/png', buffer: PNG });
   await expect(page.getByText('pixel.png')).toBeVisible();
+
+  if (browserName === 'webkit') {
+    // Playwright's WebKit does not raise its "download" event for a navigation that ends in an
+    // attachment, although the browser handles it. Check what the browser is actually given: the
+    // signed link answers with the same bytes and a Content-Disposition: attachment header.
+    const [response] = await Promise.all([
+      page.waitForResponse((r) => r.url().includes('X-Amz-Signature')),
+      page.getByRole('button', { name: 'Download pixel.png' }).click(),
+    ]);
+    expect(response.status()).toBe(200);
+    expect(response.headers()['content-disposition']).toMatch(/^attachment; filename="pixel\.png"/);
+    expect((await response.body()).equals(PNG)).toBe(true);
+    return;
+  }
 
   const [download] = await Promise.all([
     page.waitForEvent('download'),

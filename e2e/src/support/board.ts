@@ -51,6 +51,14 @@ export const openCardPage = async (page: Page, path: string): Promise<void> => {
   await page.getByText('Loading attachments…').waitFor({ state: 'hidden' });
 };
 
-/** Waits until React has taken over the page (the Next.js client router mounts its announcer then). */
-export const hydrated = (page: Page): Promise<void> =>
-  page.locator('next-route-announcer').waitFor({ state: 'attached' });
+/**
+ * Waits until React has taken over this element: server-rendered HTML can be typed into before
+ * hydration, and hydration then wipes what was typed. React marks every DOM node it owns.
+ */
+export const hydrated = async (target: Locator): Promise<void> => {
+  await expect
+    .poll(() =>
+      target.evaluate((el) => Object.keys(el).some((key) => key.startsWith('__reactFiber$'))),
+    )
+    .toBe(true);
+};

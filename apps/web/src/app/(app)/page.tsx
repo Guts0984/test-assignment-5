@@ -51,7 +51,11 @@ export default async function HomePage() {
             <ul className="grid gap-1">
               {workspace.boards.map((board) => (
                 <li key={board.id}>
-                  <Link className="underline-offset-4 hover:underline" href={`/boards/${board.id}`}>
+                  <Link
+                    className="underline-offset-4 hover:underline"
+                    href={`/boards/${board.id}`}
+                    prefetch={false}
+                  >
                     {board.name}
                   </Link>
                 </li>

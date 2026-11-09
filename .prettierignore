@@ -4,3 +4,4 @@ dist
 coverage
 pnpm-lock.yaml
 packages/db/migrations
+apps/web/next-env.d.ts

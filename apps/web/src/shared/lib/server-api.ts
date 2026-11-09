@@ -57,11 +57,15 @@ export const errorOf = (result: ApiResult): ErrorBody['error'] | undefined => {
   return parsed.success ? parsed.data.error : undefined;
 };
 
+/** A static page that explains the rate limit (it calls no API, so it cannot be limited itself). */
+const SLOW_DOWN = '/slow-down';
+
 /** Loads data that needs a signed-in user: no session sends the visitor to the login page. */
 export const loadPrivate = async <T>(path: string): Promise<T> => {
   const result = await apiFetch(path);
   if (result.status === 401) redirect('/login');
   if (result.status === 404) notFound();
+  if (result.status === 429) redirect(SLOW_DOWN); // a rate-limited visitor is not a server error
   if (result.status >= 400) throw new Error(`The API answered ${result.status} for ${path}`);
   return result.body as T;
 };
@@ -70,6 +74,7 @@ export const loadPrivate = async <T>(path: string): Promise<T> => {
 export const loadPublic = async <T>(path: string): Promise<T | null> => {
   const result = await apiFetch(path, { withSession: false });
   if (result.status === 404) return null;
+  if (result.status === 429) redirect(SLOW_DOWN);
   if (result.status >= 400) throw new Error(`The API answered ${result.status} for ${path}`);
   return result.body as T;
 };
