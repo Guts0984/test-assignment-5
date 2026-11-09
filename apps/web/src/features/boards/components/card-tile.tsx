@@ -24,6 +24,7 @@ export const CardBody = ({
   <div className="min-w-0 flex-1">
     <Link
       href={`/boards/${boardId}/cards/${card.id}`}
+      prefetch={false}
       className="line-clamp-2 text-sm font-medium underline-offset-2 hover:underline"
     >
       {card.title}

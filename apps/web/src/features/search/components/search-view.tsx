@@ -29,6 +29,7 @@ const Result = ({ result }: { result: SearchResult }) => (
     <Link
       className="font-medium underline-offset-2 hover:underline"
       href={`/boards/${result.boardId}/cards/${result.cardId}`}
+      prefetch={false}
     >
       <Highlighted parts={result.cardTitle} />
     </Link>
