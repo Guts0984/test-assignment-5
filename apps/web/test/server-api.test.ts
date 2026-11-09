@@ -161,4 +161,20 @@ describe('the rule behind it', () => {
       .map((file) => relative(root, file));
     expect(callers.sort()).toEqual(['shared/lib/client-api.ts', 'shared/lib/server-api.ts']);
   });
+
+  it('no link prefetches its page: WebKit reports a prefetch cancelled by a click as an uncaught error', () => {
+    const root = join(import.meta.dirname, '..', 'src');
+    const offenders: string[] = [];
+    const walk = (dir: string) =>
+      readdirSync(dir).forEach((name) => {
+        const path = join(dir, name);
+        if (statSync(path).isDirectory()) return walk(path);
+        if (!/\.tsx$/.test(name)) return;
+        for (const tag of readFileSync(path, 'utf8').match(/<Link\b[^>]*>/g) ?? [])
+          if (!/prefetch=\{false\}/.test(tag))
+            offenders.push(`${relative(root, path)}: ${tag.slice(0, 60)}`);
+      });
+    walk(root);
+    expect(offenders).toEqual([]);
+  });
 });

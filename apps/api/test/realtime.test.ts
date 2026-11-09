@@ -11,8 +11,10 @@ import {
 import { and, eq } from 'drizzle-orm';
 import { Redis } from 'ioredis';
 import { io as connect, type Socket } from 'socket.io-client';
-import { afterAll, afterEach, beforeAll, describe, expect, inject, it } from 'vitest';
+import { afterAll, afterEach, beforeAll, describe, expect, inject, it, vi } from 'vitest';
 
+import { BoardsService } from '../src/boards/boards.service';
+import { PresenceService } from '../src/realtime/presence.service';
 import { call, startApp, testConfig, type RunningApp } from './support/app';
 import {
   asJson,
@@ -667,5 +669,66 @@ describe('renaming and deleting a board', () => {
     await call(`${one.url}/boards/${own.id}`, asJson(alice, 'PATCH', { name: 'Quiet' }));
     await sleep(400);
     expect(namesOf(elsewhere)).not.toContain('board.renamed');
+  });
+});
+
+describe('a join that fails half way', () => {
+  afterEach(() => vi.restoreAllMocks());
+
+  it('leaves no presence entry behind (no ghost until the timeout)', async () => {
+    const own = await makeBoard(workspaceId);
+    const client = await open(one, bob);
+    const presence = one.app.get(PresenceService);
+    // the join works up to the point where the presence list is read, then Redis "hiccups"
+    vi.spyOn(presence, 'snapshot').mockRejectedValue(new Error('redis hiccup'));
+    expect(await join(client, own.id)).toEqual({ ok: false, error: 'unavailable' });
+    vi.restoreAllMocks();
+
+    const entries = await presence.snapshot(own.id);
+    expect(entries.map((entry) => entry.user.id)).not.toContain(bob.id);
+  });
+
+  it('does not throw away a working subscription when a repeated join fails, and tells the client', async () => {
+    const own = await makeBoard(workspaceId);
+    const client = await open(one, bob);
+    const other = await open(two, alice);
+    expect((await join(client, own.id)).ok).toBe(true);
+    expect((await join(other, own.id)).ok).toBe(true);
+
+    vi.spyOn(one.app.get(BoardsService), 'get').mockRejectedValueOnce(new Error('db hiccup'));
+    expect(await join(client, own.id)).toEqual({ ok: false, error: 'unavailable' });
+
+    const created = await call(
+      `${two.url}/boards/${own.id}/cards`,
+      asJson(alice, 'POST', { columnId: own.columnIds[0], title: 'still watching' }),
+    );
+    expect(created.status).toBe(201);
+    await waitFor(() => namesOf(client).includes('card.created'), 8_000, 'card.created');
+  });
+
+  it('but a repeated join by someone who lost access does drop the subscription', async () => {
+    const own = await makeBoard(workspaceId);
+    const outsiderInWs = await registerUser(one.url, 'late');
+    await testDb()
+      .db.insert(workspaceMembers)
+      .values({ workspaceId, userId: outsiderInWs.id, role: 'viewer' });
+    const client = await open(one, outsiderInWs);
+    expect((await join(client, own.id)).ok).toBe(true);
+
+    await testDb()
+      .db.delete(workspaceMembers)
+      .where(
+        and(
+          eq(workspaceMembers.workspaceId, workspaceId),
+          eq(workspaceMembers.userId, outsiderInWs.id),
+        ),
+      );
+    expect(await join(client, own.id)).toEqual({ ok: false, error: 'not_found' });
+    await call(
+      `${one.url}/boards/${own.id}/cards`,
+      asJson(alice, 'POST', { columnId: own.columnIds[0], title: 'secret now' }),
+    );
+    await sleep(500);
+    expect(namesOf(client)).not.toContain('card.created');
   });
 });

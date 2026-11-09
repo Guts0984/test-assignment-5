@@ -11,7 +11,9 @@ export default function BoardError({ reset }: { error: Error; reset: () => void 
       <div className="flex justify-center gap-3">
         <Button onClick={reset}>Try again</Button>
         <Button variant="outline" asChild>
-          <Link href="/">Your boards</Link>
+          <Link prefetch={false} href="/">
+            Your boards
+          </Link>
         </Button>
       </div>
     </div>

@@ -446,4 +446,17 @@ describe('download links', () => {
       'отчёт "Q4"\r\nX-Evil: 1.pdf',
     );
   });
+
+  it('encodes every character the filename* syntax does not allow, such as quotes, brackets and stars', async () => {
+    const name = "it's (the) *final* report!.pdf";
+    const file = await attach(await newCard(), PDF, 'application/pdf', name);
+    await file.complete();
+    const link = downloadLinkSchema.parse(
+      (await call(url(`/attachments/${file.id}/download`), as(bob))).body,
+    );
+    const disposition = (await fetch(link.url)).headers.get('content-disposition') ?? '';
+    const encoded = disposition.split("filename*=UTF-8''")[1] ?? '';
+    expect(encoded).toMatch(/^[A-Za-z0-9!#$&+.^_`|~%-]+$/); // RFC 8187 attr-char only
+    expect(decodeURIComponent(encoded)).toBe(name);
+  });
 });

@@ -73,7 +73,11 @@ export const RegisterForm = ({ next }: { next: string }) => {
       </Button>
       <p className="text-sm text-muted-foreground">
         Already registered?{' '}
-        <Link className="underline" href={`/login?next=${encodeURIComponent(next)}`}>
+        <Link
+          prefetch={false}
+          className="underline"
+          href={`/login?next=${encodeURIComponent(next)}`}
+        >
           Sign in
         </Link>
       </p>

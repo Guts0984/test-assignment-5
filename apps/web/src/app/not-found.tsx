@@ -7,7 +7,7 @@ export default function NotFound() {
       <p className="text-muted-foreground">
         This page does not exist, or you do not have access to it.
       </p>
-      <Link href="/" className="underline">
+      <Link prefetch={false} href="/" className="underline">
         Back to your boards
       </Link>
     </main>

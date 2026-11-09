@@ -62,7 +62,11 @@ export const LoginForm = ({ next }: { next: string }) => {
       </Button>
       <p className="text-sm text-muted-foreground">
         No account?{' '}
-        <Link className="underline" href={`/register?next=${encodeURIComponent(next)}`}>
+        <Link
+          prefetch={false}
+          className="underline"
+          href={`/register?next=${encodeURIComponent(next)}`}
+        >
           Create one
         </Link>
       </p>

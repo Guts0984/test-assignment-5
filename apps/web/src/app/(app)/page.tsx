@@ -44,7 +44,11 @@ export default async function HomePage() {
                   {workspace.role}
                 </span>
               </h2>
-              <Link className="text-sm underline" href={`/workspaces/${workspace.id}/settings`}>
+              <Link
+                prefetch={false}
+                className="text-sm underline"
+                href={`/workspaces/${workspace.id}/settings`}
+              >
                 Members and settings
               </Link>
             </div>

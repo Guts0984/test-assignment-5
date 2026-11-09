@@ -270,6 +270,7 @@ export class RealtimeService implements OnModuleDestroy {
     if (!data.boards.has(boardId) && data.boards.size >= MAX_BOARDS_PER_SOCKET)
       return reply({ ok: false, error: 'rate_limited' });
 
+    const wasJoined = data.boards.has(boardId);
     try {
       const { workspaceId } = await this.access
         .requireForBoard(data.user.id, boardId, 'viewer')
@@ -292,8 +293,11 @@ export class RealtimeService implements OnModuleDestroy {
       this.broadcastPresence(boardId, users);
       reply({ ok: true, snapshot, presence: users, lastEventId: last ?? 0 });
     } catch (error) {
-      await socket.leave(boardRoom(boardId));
-      data.boards.delete(boardId);
+      // A join that failed half way must leave nothing behind (room, board record, presence entry).
+      // But a failed RE-join of a board the socket was already watching must not throw away a
+      // working subscription, unless the reason is that access is gone.
+      if (error instanceof NotAllowed || !wasJoined)
+        await this.leaveBoard(socket, boardId).catch(() => undefined);
       reply({ ok: false, error: error instanceof NotAllowed ? 'not_found' : 'unavailable' });
     }
   }

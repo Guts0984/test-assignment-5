@@ -21,7 +21,9 @@ export const dragWithKeyboard = async (
   const announcement = page.locator('[id^="DndLiveRegion"]');
   await handle.focus();
   await page.keyboard.press('Space');
-  await expect(announcement).toContainText(/Picked up|is over/); // arrow keys are listened to only after the pick-up
+  // "is over ..." is announced once dnd-kit has measured the drop targets; arrow keys pressed
+  // before that find nothing to move to and the card is dropped where it was.
+  await expect(announcement).toContainText('is over');
   for (const key of keys) {
     const before = await announcement.textContent();
     await page.keyboard.press(key);

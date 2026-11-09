@@ -17,7 +17,7 @@ export default async function SettingsPage({ params }: { params: Promise<{ id: s
   return (
     <main className="mx-auto grid max-w-3xl gap-6 p-6">
       <div>
-        <Link href="/" className="text-sm underline">
+        <Link prefetch={false} href="/" className="text-sm underline">
           ← Your workspaces
         </Link>
         <h1 className="mt-2 text-2xl font-semibold">{workspace?.name ?? 'Workspace'} · members</h1>

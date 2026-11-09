@@ -36,7 +36,7 @@ export const BoardScreen = ({ boardId, initial }: { boardId: string; initial: Bo
     <div className="flex h-[calc(100vh-3.25rem)] flex-col">
       <div className="flex flex-wrap items-center justify-between gap-3 border-b border-border px-4 py-2">
         <div className="flex items-center gap-3">
-          <Link href="/" className="text-sm underline">
+          <Link prefetch={false} href="/" className="text-sm underline">
             ← Boards
           </Link>
           <h1 className="text-lg font-semibold">{snapshot.board.name}</h1>

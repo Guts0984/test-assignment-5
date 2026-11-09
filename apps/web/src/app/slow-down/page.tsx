@@ -13,7 +13,7 @@ export default function SlowDownPage() {
       <p className="text-muted-foreground">
         You are sending requests faster than we allow. Wait a few seconds and try again.
       </p>
-      <Link href="/" className="underline">
+      <Link prefetch={false} href="/" className="underline">
         Back to your boards
       </Link>
     </main>

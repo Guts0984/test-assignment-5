@@ -23,7 +23,7 @@ export default async function InvitePage({ params }: { params: Promise<{ token: 
         <p className="text-muted-foreground">
           It may have expired, been replaced by a newer one, or already been used.
         </p>
-        <Link href="/" className="underline">
+        <Link prefetch={false} href="/" className="underline">
           Go to your boards
         </Link>
       </main>
@@ -40,10 +40,10 @@ export default async function InvitePage({ params }: { params: Promise<{ token: 
         <div className="grid gap-2">
           <p>Sign in or create an account with that address to accept.</p>
           <div className="flex gap-4">
-            <Link className="underline" href={`/login?next=${next}`}>
+            <Link prefetch={false} className="underline" href={`/login?next=${next}`}>
               Sign in
             </Link>
-            <Link className="underline" href={`/register?next=${next}`}>
+            <Link prefetch={false} className="underline" href={`/register?next=${next}`}>
               Create account
             </Link>
           </div>

@@ -47,6 +47,16 @@ const toAttachment = (row: typeof attachments.$inferSelect): Attachment => ({
 const asciiFallback = (name: string): string =>
   name.replace(/[^\w.\- ()]/g, '_').slice(0, 100) || 'download';
 
+/**
+ * The `filename*` parameter (RFC 5987 / 8187) allows only letters, digits and !#$&+-.^_`|~ unescaped.
+ * encodeURIComponent also leaves ' ( ) * alone, which that syntax does not allow.
+ */
+const encodeFilenameStar = (name: string): string =>
+  encodeURIComponent(name).replace(
+    /['()*]/g,
+    (character) => `%${character.charCodeAt(0).toString(16).toUpperCase()}`,
+  );
+
 @Injectable()
 export class AttachmentsService {
   private readonly logger = new Logger(AttachmentsService.name);
@@ -226,7 +236,7 @@ export class AttachmentsService {
         Key: row.objectKey,
         // What the browser is told about the file is what we verified, not what the client claimed.
         ResponseContentType: row.detectedType ?? 'application/octet-stream',
-        ResponseContentDisposition: `attachment; filename="${asciiFallback(row.fileName)}"; filename*=UTF-8''${encodeURIComponent(row.fileName)}`,
+        ResponseContentDisposition: `attachment; filename="${asciiFallback(row.fileName)}"; filename*=UTF-8''${encodeFilenameStar(row.fileName)}`,
       }),
       { expiresIn: ttl },
     );
