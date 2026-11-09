@@ -28,6 +28,7 @@
   "type": "module",
   "exports": {
     ".": "./src/index.ts",
-    "./testing": "./test/support/postgres.ts"
+    "./testing": "./test/support/postgres.ts",
+    "./testing/fixture": "./test/support/fixture.ts"
   }
 }

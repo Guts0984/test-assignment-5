@@ -5,10 +5,12 @@ packages:
 
 # Install scripts are denied unless a dependency genuinely needs them.
 # esbuild ships its binary as a prebuilt platform package; cpu-features and ssh2 are optional
-# native add-ons of testcontainers (pure-JS fallback); protobufjs only runs a version check.
+# native add-ons of testcontainers and BullMQ (pure-JS fallbacks); protobufjs only runs a version
+# check.
 allowBuilds:
   '@scarf/scarf': false
   cpu-features: false
   esbuild: false
+  msgpackr-extract: false
   protobufjs: false
   ssh2: false

@@ -142,13 +142,15 @@ jobs:
           done
 
       # Acceptance check 15: SIGTERM ends the process cleanly with exit code 0.
-      - name: SIGTERM stops an API instance with exit code 0
+      - name: SIGTERM stops the API and the worker with exit code 0
         run: |
-          docker compose kill -s SIGTERM api1
-          sleep 3
-          code=$(docker inspect -f '{{.State.ExitCode}}' "$(docker compose ps -a -q api1)")
-          echo "api1 exit code: $code"
-          test "$code" = "0"
+          docker compose kill -s SIGTERM api1 worker
+          sleep 5
+          for service in api1 worker; do
+            code=$(docker inspect -f '{{.State.ExitCode}}' "$(docker compose ps -a -q "$service")")
+            echo "$service exit code: $code"
+            test "$code" = "0"
+          done
 
       - name: Logs on failure
         if: failure()

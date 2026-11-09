@@ -104,6 +104,34 @@ services:
     command:
       - mc alias set local http://minio:9000 "$$MINIO_ROOT_USER" "$$MINIO_ROOT_PASSWORD" && mc mb --ignore-existing "local/$$S3_BUCKET"
 
+  # Sends the queued emails (invitations, mention digests) and cleans up stale uploads.
+  worker:
+    build:
+      context: .
+      dockerfile: apps/worker/Dockerfile
+    image: kanban-worker:local
+    restart: unless-stopped
+    depends_on:
+      init:
+        condition: service_completed_successfully
+      redis:
+        condition: service_healthy
+      minio:
+        condition: service_healthy
+      minio-setup:
+        condition: service_completed_successfully
+      mailpit:
+        condition: service_healthy
+    volumes:
+      # The worker reads its configuration only from this file (see apps/worker/src/env.ts).
+      - ./.env:/app/.env:ro
+    healthcheck:
+      test: ['CMD', 'wget', '-qO-', 'http://127.0.0.1:3002/health']
+      interval: 5s
+      timeout: 3s
+      retries: 10
+      start_period: 10s
+
   api1:
     <<: *api
 

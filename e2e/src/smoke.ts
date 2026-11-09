@@ -234,6 +234,73 @@ await check('Socket.IO does not offer the long-polling fallback', async () => {
   assert(response.status === 400, `status ${response.status}`);
 });
 
+await check(
+  'an invitation arrives as an email in Mailpit, and its link can be accepted',
+  async () => {
+    const workspaces = (await api('/workspaces', { cookie })).body as unknown as {
+      id: string;
+      role: string;
+      name: string;
+    }[];
+    const acme = workspaces.find((w) => w.role === 'owner' && w.name === 'Acme Product');
+    if (!acme) throw new Error('no owned workspace');
+    const email = `smoke-${Date.now()}@example.com`;
+    const invite = await api(`/workspaces/${acme.id}/invites`, {
+      method: 'POST',
+      cookie,
+      json: { email, role: 'viewer' },
+    });
+    assert(invite.status === 201, `invite: ${invite.status} ${JSON.stringify(invite.body)}`);
+
+    // the worker picks it up from the outbox and sends it through Mailpit
+    let messageId = '';
+    for (let i = 0; i < 40 && !messageId; i += 1) {
+      const found = (await (
+        await fetch(`${MAILPIT}/api/v1/search?query=${encodeURIComponent(`to:${email}`)}`)
+      ).json()) as { messages: { ID: string }[] };
+      messageId = found.messages[0]?.ID ?? '';
+      if (!messageId) await new Promise((resolve) => setTimeout(resolve, 500));
+    }
+    assert(messageId, 'no email arrived in Mailpit within 20 seconds');
+    const detail = (await (await fetch(`${MAILPIT}/api/v1/message/${messageId}`)).json()) as {
+      Text: string;
+      Subject: string;
+    };
+    const link = detail.Text.match(/https?:\/\/\S+\/invite\/[\w-]+/)?.[0];
+    if (!link?.startsWith(BASE)) {
+      throw new Error(`the email has no link to ${BASE}: ${detail.Text.slice(0, 200)}`);
+    }
+
+    // the invited person signs up with that address and accepts
+    const handle = `smoke${Date.now()}`.slice(0, 30);
+    const registered = await api('/auth/register', {
+      method: 'POST',
+      json: { email, handle, name: 'Smoke Invitee', password: 'a-long-password' },
+    });
+    assert(
+      registered.status === 201,
+      `register: ${registered.status} ${JSON.stringify(registered.body)}`,
+    );
+    const inviteeCookie = (registered.headers.get('set-cookie') ?? '').split(';')[0] ?? '';
+    const token = link.split('/').pop();
+    const accepted = await api(`/invites/${token}/accept`, {
+      method: 'POST',
+      cookie: inviteeCookie,
+    });
+    assert(
+      accepted.status === 200 && accepted.body.role === 'viewer',
+      `accept: ${accepted.status} ${JSON.stringify(accepted.body)}`,
+    );
+    const mine = (await api('/workspaces', { cookie: inviteeCookie })).body as unknown as {
+      id: string;
+    }[];
+    assert(
+      mine.some((w) => w.id === acme.id),
+      'the new member does not see the workspace',
+    );
+  },
+);
+
 await check('Swagger UI is served', async () => {
   const response = await fetch(`${BASE}/docs`);
   assert(
