@@ -1,5 +1,5 @@
 import type { SearchPage } from '@kanban/shared';
-import { keepPreviousData, useInfiniteQuery } from '@tanstack/react-query';
+import { useInfiniteQuery } from '@tanstack/react-query';
 
 import { api } from '@/shared/lib/client-api';
 
@@ -21,5 +21,9 @@ export const useSearch = (workspaceId: string, q: string) =>
         { signal },
       ),
     getNextPageParam: (last) => last.nextCursor ?? undefined,
-    placeholderData: keepPreviousData,
+    // While a new question is loading, keep showing the previous answer so the list does not
+    // flash empty, but only for the same workspace: another workspace's results must never stay
+    // on screen under a different workspace's name.
+    placeholderData: (previous, previousQuery) =>
+      previousQuery?.queryKey[1] === workspaceId ? previous : undefined,
   });

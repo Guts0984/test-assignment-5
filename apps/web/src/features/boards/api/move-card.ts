@@ -3,8 +3,15 @@ import { useMutation, useQueryClient, type QueryClient } from '@tanstack/react-q
 
 import { api, describeError } from '@/shared/lib/client-api';
 import { toast } from '@/shared/ui/toaster';
-import { applyMove, placeCard } from '../model/board-cache';
+import { applyEvent, applyMove, placeCard } from '../model/board-cache';
 import { trackerFor } from '../model/event-tracker';
+import {
+  beginMove,
+  confirmedPlace,
+  confirmMove,
+  endMove,
+  hasLaterMove,
+} from '../model/pending-moves';
 import { cardsOfColumn, optimisticKey, type DropTarget } from '../model/order';
 import { boardKey } from './keys';
 
@@ -78,18 +85,23 @@ export const useMoveCard = (boardId: string) => {
       if (!before || !card) return undefined;
       const { before: prev, after: next } = neighbourKeys(before, cardId, target);
       const position = optimisticKey(prev, next);
+      beginMove(cardId, { columnId: card.columnId, position: card.position });
       client.setQueryData<BoardSnapshot>(
         boardKey(boardId),
         placeCard(before, cardId, { columnId: target.columnId, position }),
       );
-      return {
-        original: { columnId: card.columnId, position: card.position },
-        optimistic: { columnId: target.columnId, position },
-      };
+      return { optimistic: { columnId: target.columnId, position } };
     },
-    onSuccess: (response) => applyMoveResponse(client, boardId, response),
+    onSuccess: (response, { cardId }, context) => {
+      if (!context) return applyMoveResponse(client, boardId, response);
+      confirmMove(cardId, { columnId: response.card.columnId, position: response.card.position });
+      // A later move of this card is already shown: this answer is outdated for the screen (the
+      // last answer of the series will place the card), and applying it would make the card jump.
+      if (!hasLaterMove(cardId)) applyMoveResponse(client, boardId, response);
+    },
     onError: (error, { cardId }, context) => {
-      if (context) {
+      const confirmed = confirmedPlace(cardId);
+      if (context && confirmed) {
         client.setQueryData<BoardSnapshot>(boardKey(boardId), (current) => {
           const card = current?.cards.find((candidate) => candidate.id === cardId);
           // Only undo our own guess: if something else has moved the card since, leave it.
@@ -97,11 +109,19 @@ export const useMoveCard = (boardId: string) => {
             card &&
             card.columnId === context.optimistic.columnId &&
             card.position === context.optimistic.position
-            ? placeCard(current, cardId, context.original)
+            ? placeCard(current, cardId, confirmed)
             : current;
         });
       }
       toast(`The card could not be moved. ${describeError(error)}`, 'error');
+    },
+    onSettled: (_response, _error, { cardId }, context) => {
+      if (!context) return;
+      const announcement = endMove(cardId);
+      if (announcement)
+        client.setQueryData<BoardSnapshot>(boardKey(boardId), (current) =>
+          current ? applyEvent(current, 'card.moved', announcement, trackerFor(boardId)) : current,
+        );
     },
   });
 };

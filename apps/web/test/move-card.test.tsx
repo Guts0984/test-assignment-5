@@ -9,6 +9,7 @@ import { boardKey } from '@/features/boards/api/keys';
 import { useMoveCard } from '@/features/boards/api/move-card';
 import { applyEvent } from '@/features/boards/model/board-cache';
 import { trackerFor } from '@/features/boards/model/event-tracker';
+import { deferAnnouncement } from '@/features/boards/model/pending-moves';
 import { cardsOfColumn, type DropTarget } from '@/features/boards/model/order';
 import { toast } from '@/shared/ui/toaster';
 import { board, card, cardId, ids } from './support/fixtures';
@@ -251,5 +252,107 @@ describe('moving a card', () => {
       ids.doing,
       ids.todo,
     ]); // in the order they were made
+  });
+});
+
+describe('quick repeated moves of one card', () => {
+  const second: DropTarget = {
+    columnId: ids.todo,
+    index: 0,
+    afterId: null,
+    beforeId: cardId(1),
+  };
+  /** Every position the screen showed for card 3, in order. */
+  const watchPositions = (client: QueryClient) => {
+    const seen: string[] = [];
+    const read = () => {
+      const position = client
+        .getQueryData<BoardSnapshot>(boardKey(ids.board))
+        ?.cards.find((c) => c.id === cardId(3))?.position;
+      if (position && seen.at(-1) !== position) seen.push(position);
+    };
+    read();
+    client.getQueryCache().subscribe(read);
+    return seen;
+  };
+  const answerInTurn = (answers: (() => Response | Promise<Response>)[]) => {
+    let call = 0;
+    server.use(
+      http.post('http://localhost/api/cards/:id/move', async () => {
+        await delay(60);
+        const answer = answers[call] ?? answers.at(-1)!;
+        call += 1;
+        return answer();
+      }),
+    );
+  };
+  const both = (hook: ReturnType<typeof setup>['hook']) =>
+    act(() => {
+      hook.result.current.mutate({ cardId: cardId(3), target: between });
+      hook.result.current.mutate({ cardId: cardId(3), target: second });
+    });
+
+  it('the first answer does not pull the card back while the second move is still shown; the last answer places it', async () => {
+    answerInTurn([
+      () => HttpResponse.json(response(3, 'a11', 4)),
+      () => HttpResponse.json(response(3, 'a12', 5)),
+    ]);
+    const { client, hook, positionOf } = setup();
+    const seen = watchPositions(client);
+
+    both(hook);
+    await waitFor(() => expect(positionOf(3).position).toBe('a12'), { timeout: 3000 });
+    await act(async () => {
+      await new Promise((resolve) => setTimeout(resolve, 150));
+    });
+    expect(seen).not.toContain('a11'); // the first answer was outdated by the time it arrived
+    expect(positionOf(3).position).toBe('a12');
+  });
+
+  it('when both moves are refused the card goes back to where the server has it, not to a guess', async () => {
+    answerInTurn([forbidden, forbidden]);
+    const { hook, snapshot, positionOf } = setup();
+    const original = positionOf(3).position;
+
+    both(hook);
+    await waitFor(() => expect(toast).toHaveBeenCalledTimes(2), { timeout: 3000 });
+    expect(positionOf(3)).toMatchObject({ position: original, columnId: ids.todo });
+    expect(cardsOfColumn(snapshot(), ids.todo).map((c) => c.title)).toEqual([
+      'Card 1',
+      'Card 2',
+      'Card 3',
+    ]);
+  });
+
+  it('when the first is accepted and the second refused the card stays where the first put it', async () => {
+    answerInTurn([() => HttpResponse.json(response(3, 'a11', 4)), forbidden]);
+    const { hook, positionOf } = setup();
+
+    both(hook);
+    await waitFor(() => expect(toast).toHaveBeenCalledTimes(1), { timeout: 3000 });
+    expect(positionOf(3).position).toBe('a11');
+  });
+
+  it('a newer announcement that arrives meanwhile is kept and applied afterwards; an older one is dropped', async () => {
+    const announced = (eventId: number, position: string) => ({
+      eventId,
+      boardId: ids.board,
+      actorId: null,
+      clientMutationId: null,
+      card: card(3, { position }),
+      fromColumnId: ids.todo,
+    });
+    answerInTurn([() => HttpResponse.json(response(3, 'a15', 4))]);
+    const { hook, positionOf } = setup();
+
+    expect(deferAnnouncement(cardId(3), announced(9, 'a20'))).toBe(false); // nothing pending yet: apply at once
+    act(() => hook.result.current.mutate({ cardId: cardId(3), target: between }));
+    await waitFor(() => expect(hook.result.current.isPending).toBe(true));
+    expect(deferAnnouncement(cardId(3), announced(10, 'a30'))).toBe(true); // held back
+    expect(deferAnnouncement(cardId(3), announced(2, 'a01'))).toBe(true); // an older one never wins
+    expect(positionOf(3).position).not.toBe('a30'); // not shown yet
+
+    await waitFor(() => expect(hook.result.current.isSuccess).toBe(true));
+    await waitFor(() => expect(positionOf(3).position).toBe('a30')); // announced later than our answer
   });
 });

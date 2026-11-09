@@ -23,7 +23,13 @@ import {
 } from 'react';
 import { io, type Socket } from 'socket.io-client';
 
-import { applyEvent, boardKey, trackerFor, wasDeletedHere } from '@/features/boards';
+import {
+  applyEvent,
+  boardKey,
+  deferAnnouncement,
+  trackerFor,
+  wasDeletedHere,
+} from '@/features/boards';
 import { toast } from '@/shared/ui/toaster';
 
 export type ConnectionStatus = 'connecting' | 'live' | 'offline';
@@ -120,7 +126,11 @@ export const RealtimeProvider = ({
 
     on('card.created', (payload) => patchBoard('card.created', payload));
     on('card.updated', (payload) => patchBoard('card.updated', payload));
-    on('card.moved', (payload) => patchBoard('card.moved', payload));
+    on('card.moved', (payload) => {
+      // While we are still moving this very card, wait: applying the announcement of our own
+      // earlier move (or someone else's) now would make the card jump under the pointer.
+      if (!deferAnnouncement(payload.card.id, payload)) patchBoard('card.moved', payload);
+    });
     on('card.deleted', (payload) => patchBoard('card.deleted', payload));
     on('column.rebalanced', (payload) => patchBoard('column.rebalanced', payload));
     on(

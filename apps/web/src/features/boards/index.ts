@@ -7,3 +7,4 @@ export { trackerFor, createEventTracker } from './model/event-tracker';
 export { resolveDrop, compareCards, columnDropId } from './model/order';
 export type { EventTracker } from './model/event-tracker';
 export { wasDeletedHere } from './model/deleted-here';
+export { deferAnnouncement } from './model/pending-moves';

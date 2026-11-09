@@ -85,7 +85,7 @@ export const SearchView = ({ workspaces }: { workspaces: { id: string; name: str
       </form>
       <div aria-live="polite">
         {q.length === 0 ? <p className="text-sm text-muted-foreground">Type to search.</p> : null}
-        {search.isPending && q.length > 0 ? (
+        {q.length > 0 && (search.isPending || search.isPlaceholderData) ? (
           <p className="text-sm text-muted-foreground" aria-busy="true">
             Searching…
           </p>
@@ -98,7 +98,7 @@ export const SearchView = ({ workspaces }: { workspaces: { id: string; name: str
             </button>
           </p>
         ) : null}
-        {search.isSuccess && results.length === 0 ? (
+        {search.isSuccess && !search.isPlaceholderData && results.length === 0 ? (
           <p className="text-sm text-muted-foreground">Nothing found for “{q}”.</p>
         ) : null}
       </div>

@@ -71,7 +71,70 @@ describe('search answers that arrive out of order', () => {
   });
 });
 
+describe('searching in another workspace', () => {
+  const OTHER = '66666666-6666-4666-8666-666666666666';
+
+  it('never shows the first workspace’s results while the second one loads, but keeps them while the same workspace loads a new question', async () => {
+    server.use(
+      http.get('http://localhost/api/search', async ({ request }) => {
+        const url = new URL(request.url);
+        await delay(
+          url.searchParams.get('q') === 'again' || url.searchParams.get('workspace') === OTHER
+            ? 120
+            : 5,
+        );
+        return HttpResponse.json(
+          page(url.searchParams.get('workspace') === OTHER ? 'OTHER workspace' : 'FIRST workspace'),
+        );
+      }),
+    );
+    const { result, rerender } = renderHook(
+      ({ ws, q }: { ws: string; q: string }) => useSearch(ws, q),
+      { wrapper: provider(), initialProps: { ws: ids.board, q: 'deploy' } },
+    );
+    await waitFor(() => expect(result.current.isSuccess).toBe(true));
+
+    rerender({ ws: ids.board, q: 'again' }); // same workspace: the old list stays until the new one is there
+    expect(result.current.data?.pages[0]?.items[0]?.cardTitle[0]?.text).toBe('FIRST workspace');
+    expect(result.current.isPlaceholderData).toBe(true);
+    await waitFor(() => expect(result.current.isPlaceholderData).toBe(false));
+
+    rerender({ ws: OTHER, q: 'again' }); // another workspace: nothing of the first one may stay
+    expect(result.current.data).toBeUndefined();
+    expect(result.current.isPending).toBe(true);
+    await waitFor(() =>
+      expect(result.current.data?.pages[0]?.items[0]?.cardTitle[0]?.text).toBe('OTHER workspace'),
+    );
+  });
+});
+
 describe('the search screen', () => {
+  it('says "Searching…" for every question, and does not claim "Nothing found" while the next answer is still on its way', async () => {
+    server.use(
+      http.get('http://localhost/api/search', async ({ request }) => {
+        const q = new URL(request.url).searchParams.get('q');
+        if (q === 'none') return HttpResponse.json({ items: [], nextCursor: null });
+        await delay(500);
+        return HttpResponse.json(page('Slow answer'));
+      }),
+    );
+    render(<SearchView workspaces={[{ id: ids.board, name: 'Acme' }]} />, { wrapper: provider() });
+    const user = userEvent.setup();
+    const input = screen.getByLabelText('Search cards and comments');
+
+    await user.type(input, 'none');
+    expect(
+      await screen.findByText(/Nothing found for/, undefined, { timeout: 2000 }),
+    ).toBeInTheDocument();
+
+    await user.clear(input);
+    await user.type(input, 'slow');
+    expect(await screen.findByText('Searching…', undefined, { timeout: 2000 })).toBeInTheDocument();
+    expect(screen.queryByText(/Nothing found for/)).not.toBeInTheDocument();
+    await screen.findByText('Slow answer', { selector: 'mark' }, { timeout: 3000 });
+    expect(screen.queryByText('Searching…')).not.toBeInTheDocument();
+  });
+
   it('waits for typing to pause, shows highlighted matches as marks, and handles no results and errors', async () => {
     const queries: string[] = [];
     server.use(
