@@ -165,6 +165,11 @@ export class CardsService {
         columnId: body.columnId,
         positions: moved.positions,
       });
-    return { card: moved.card, fromColumnId: moved.fromColumnId, rebalanced: moved.rebalanced };
+    return {
+      card: moved.card,
+      eventId: moved.eventId,
+      fromColumnId: moved.fromColumnId,
+      rebalanced: moved.rebalanced,
+    };
   }
 }

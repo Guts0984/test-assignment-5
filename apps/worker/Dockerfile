@@ -7,7 +7,7 @@ WORKDIR /repo
 RUN npm install -g pnpm@12.6.0
 
 # Manifests first, so the dependency layer is cached until a package.json or the lockfile changes.
-COPY package.json pnpm-workspace.yaml pnpm-lock.yaml ./
+COPY package.json pnpm-workspace.yaml pnpm-lock.yaml tsconfig.base.json ./
 COPY apps/api/package.json apps/api/
 COPY apps/web/package.json apps/web/
 COPY apps/worker/package.json apps/worker/

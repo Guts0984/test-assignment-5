@@ -83,6 +83,9 @@ export type MoveCardBody = z.infer<typeof moveCardBodySchema>;
 
 export const moveCardResponseSchema = z.object({
   card: cardSchema,
+  /** Position of this change in the board's event order; lets a client tell the response and the
+   *  socket echo of the same move apart from newer changes, whichever arrives first. */
+  eventId: z.number().int(),
   fromColumnId: idSchema,
   /** True if every key of the column was rewritten (announced separately as `column.rebalanced`). */
   rebalanced: z.boolean(),

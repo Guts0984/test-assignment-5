@@ -301,6 +301,52 @@ await check(
   },
 );
 
+await check(
+  'the web app serves its pages, and a visitor without a session is sent to sign in',
+  async () => {
+    const login = await fetch(`${BASE}/login`);
+    assert(
+      login.status === 200 && (await login.text()).includes('Sign in'),
+      `login page: ${login.status}`,
+    );
+    const home = await fetch(`${BASE}/`, { redirect: 'manual' });
+    assert(
+      home.status >= 300 &&
+        home.status < 400 &&
+        (home.headers.get('location') ?? '').includes('/login'),
+      `/ without a session answered ${home.status}`,
+    );
+  },
+);
+
+await check(
+  'pages are rendered on the server for a signed-in user, using data from the API',
+  async () => {
+    const home = await fetch(`${BASE}/`, { headers: { cookie } });
+    const html = await home.text();
+    assert(home.status === 200, `status ${home.status}`);
+    assert(
+      html.includes('Acme Product') && html.includes('Roadmap'),
+      'the workspace and board are not in the server-rendered page',
+    );
+    const board = await fetch(`${BASE}/boards/${boardId}`, { headers: { cookie } });
+    assert(
+      board.status === 200 && (await board.text()).includes('Roadmap'),
+      `board page: ${board.status}`,
+    );
+  },
+);
+
+await check('a card opened directly renders as its own page', async () => {
+  const response = await fetch(`${BASE}/boards/${boardId}/cards/${cardId}`, {
+    headers: { cookie },
+  });
+  assert(
+    response.status === 200 && (await response.text()).includes('Edit card'),
+    `status ${response.status}`,
+  );
+});
+
 await check('Swagger UI is served', async () => {
   const response = await fetch(`${BASE}/docs`);
   assert(

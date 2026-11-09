@@ -91,6 +91,24 @@ jobs:
       - name: Smoke test through nginx (upload, download, WebSocket, limits with forged headers)
         run: pnpm --filter @kanban/e2e smoke
 
+      # The bug this guards against: the web server calls the API for every visitor, and if it does
+      # not pass the visitor's address along, the API counts ALL visitors as the web server's address.
+      # After the smoke test (which loaded pages and used the WebSocket), the rate limiter must hold
+      # counters for the visitor, and none for the web server or nginx.
+      - name: The rate limiter counted the visitors, not the web server
+        run: |
+          pw=$(grep '^REDIS_PASSWORD=' .env | cut -d= -f2-)
+          ip_of() { docker inspect -f '{{range .NetworkSettings.Networks}}{{.IPAddress}}{{end}}' "$(docker compose ps -q "$1")"; }
+          keys=$(docker compose exec -T redis redis-cli -a "$pw" --no-auth-warning --scan --pattern 'rl:*')
+          echo "$keys"
+          echo "$keys" | grep -q '^rl:api:'
+          echo "$keys" | grep -q '^rl:ws-connect:'
+          for service in web nginx; do
+            if echo "$keys" | grep -q ":$(ip_of "$service")$"; then
+              echo "visitors were counted against the address of $service"; exit 1
+            fi
+          done
+
       # Acceptance check 16: recreating the API containers (new IP addresses) must not need an
       # nginx restart. The old addresses are occupied first, so the new containers really move.
       - name: Recreate the API containers under a running nginx
@@ -142,11 +160,11 @@ jobs:
           done
 
       # Acceptance check 15: SIGTERM ends the process cleanly with exit code 0.
-      - name: SIGTERM stops the API and the worker with exit code 0
+      - name: SIGTERM stops every service of ours with exit code 0
         run: |
-          docker compose kill -s SIGTERM api1 worker
-          sleep 5
-          for service in api1 worker; do
+          docker compose kill -s SIGTERM api1 api2 worker web nginx postgres redis minio mailpit
+          sleep 8
+          for service in api1 api2 worker web nginx postgres redis minio mailpit; do
             code=$(docker inspect -f '{{.State.ExitCode}}' "$(docker compose ps -a -q "$service")")
             echo "$service exit code: $code"
             test "$code" = "0"

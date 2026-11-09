@@ -132,6 +132,29 @@ services:
       retries: 10
       start_period: 10s
 
+  # The Next.js web app. It calls the API from the server (server components and actions) and
+  # attaches the visitor's signed address to every such call.
+  web:
+    build:
+      context: .
+      dockerfile: apps/web/Dockerfile
+    image: kanban-web:local
+    restart: unless-stopped
+    depends_on:
+      api1:
+        condition: service_healthy
+      api2:
+        condition: service_healthy
+    volumes:
+      # The web server reads its configuration only from this file (see src/shared/lib/env.server.ts).
+      - ./.env:/app/.env:ro
+    healthcheck:
+      test: ['CMD', 'wget', '-qO-', 'http://127.0.0.1:3000/healthz']
+      interval: 5s
+      timeout: 3s
+      retries: 10
+      start_period: 10s
+
   api1:
     <<: *api
 
@@ -166,6 +189,8 @@ services:
       api2:
         condition: service_healthy
       minio:
+        condition: service_healthy
+      web:
         condition: service_healthy
     healthcheck:
       test: ['CMD', 'wget', '-qO-', 'http://127.0.0.1:8080/nginx-health']
