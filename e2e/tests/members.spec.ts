@@ -63,12 +63,13 @@ test('an owner changes a role in the settings and removes a member, using the pa
 }) => {
   const owner = await apiAs('alice');
   const wsId = await workspaceId(owner);
+  const name = `Settings Member ${Math.random().toString(36).slice(2, 8)}`; // unique: browsers run in parallel
   const email = `member-${Date.now().toString(36)}@example.com`;
   const person = await request.newContext({ baseURL: BASE_URL });
   const handle = `member${Date.now().toString(36)}`.slice(0, 30);
   await json(
     await person.post('/api/auth/register', {
-      data: { email, handle, name: 'Settings Member', password: 'e2e-long-password-1' },
+      data: { email, handle, name, password: 'e2e-long-password-1' },
     }),
   );
   await json(
@@ -79,8 +80,8 @@ test('an owner changes a role in the settings and removes a member, using the pa
 
   const { page } = await as('alice');
   await page.goto(`/workspaces/${wsId}/settings`);
-  const row = page.getByRole('listitem').filter({ hasText: 'Settings Member' });
-  await row.getByLabel('Role of Settings Member').selectOption('editor');
+  const row = page.getByRole('listitem').filter({ hasText: name });
+  await row.getByLabel(`Role of ${name}`).selectOption('editor');
   await row.getByRole('button', { name: 'Save' }).click();
   await expect(row.getByText('Role updated.')).toBeVisible();
   expect(
@@ -89,8 +90,8 @@ test('an owner changes a role in the settings and removes a member, using the pa
     ),
   ).toBeTruthy();
 
-  await row.getByRole('button', { name: 'Remove Settings Member' }).click();
-  await expect(page.getByRole('listitem').filter({ hasText: 'Settings Member' })).toHaveCount(0);
+  await row.getByRole('button', { name: `Remove ${name}` }).click();
+  await expect(page.getByRole('listitem').filter({ hasText: name })).toHaveCount(0);
   await person.dispose();
 });
 
