@@ -41,6 +41,10 @@ export const serverEventSchemas = {
   }),
   'comment.created': envelope.extend({ comment: commentSchema }),
   'attachment.ready': envelope.extend({ attachment: attachmentSchema }),
+  /** The board was renamed. */
+  'board.renamed': z.object({ boardId: idSchema, name: z.string() }),
+  /** The board was deleted; viewers must leave it. */
+  'board.deleted': z.object({ boardId: idSchema }),
   /** Complete current list, sent on every change of who is on the board. */
   'presence.snapshot': z.object({ boardId: idSchema, users: z.array(presenceUserSchema) }),
   /** Sent right before the server drops the subscription because membership was removed. */

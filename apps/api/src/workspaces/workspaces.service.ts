@@ -1,7 +1,7 @@
 import { boards, users, workspaceMembers, workspaces, type DatabaseHandle } from '@kanban/db';
-import type { Member, WorkspaceSummary } from '@kanban/shared';
+import type { CreateWorkspaceBody, Member, WorkspaceSummary } from '@kanban/shared';
 import { Inject, Injectable } from '@nestjs/common';
-import { asc, eq, inArray } from 'drizzle-orm';
+import { and, asc, eq, inArray, isNull } from 'drizzle-orm';
 
 import { DATABASE } from '../infra/tokens';
 import { WorkspaceAccessService } from './workspace-access.service';
@@ -28,9 +28,12 @@ export class WorkspacesService {
       .select({ id: boards.id, workspaceId: boards.workspaceId, name: boards.name })
       .from(boards)
       .where(
-        inArray(
-          boards.workspaceId,
-          memberships.map((workspace) => workspace.id),
+        and(
+          inArray(
+            boards.workspaceId,
+            memberships.map((workspace) => workspace.id),
+          ),
+          isNull(boards.deletedAt),
         ),
       )
       .orderBy(asc(boards.name), asc(boards.id));
@@ -41,6 +44,21 @@ export class WorkspacesService {
         .filter((board) => board.workspaceId === workspace.id)
         .map(({ id, name }) => ({ id, name })),
     }));
+  }
+
+  /**
+   * Anyone who is signed in can start a workspace of their own and becomes its owner. Roles are
+   * per workspace, so being a viewer somewhere else changes nothing here.
+   */
+  async create(userId: string, body: CreateWorkspaceBody): Promise<WorkspaceSummary> {
+    return this.database.db.transaction(async (tx) => {
+      const [workspace] = await tx.insert(workspaces).values({ name: body.name }).returning();
+      if (!workspace) throw new Error('workspace insert returned nothing');
+      await tx
+        .insert(workspaceMembers)
+        .values({ workspaceId: workspace.id, userId, role: 'owner' });
+      return { id: workspace.id, name: workspace.name, role: 'owner', boards: [] };
+    });
   }
 
   /** Any member may see who else is in the workspace. */

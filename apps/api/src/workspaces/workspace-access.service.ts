@@ -52,13 +52,13 @@ export class WorkspaceAccessService {
 
   /**
    * Access to a board through its workspace. A board that does not exist and a board in a
-   * workspace the caller is not in look exactly the same: 404.
+   * workspace the caller is not in look exactly the same: 404, and so does a deleted board.
    */
   async requireForBoard(userId: string, boardId: string, minimum: WorkspaceRole = 'viewer') {
     const [board] = await this.database.db
       .select({ workspaceId: boards.workspaceId })
       .from(boards)
-      .where(eq(boards.id, boardId))
+      .where(and(eq(boards.id, boardId), isNull(boards.deletedAt)))
       .limit(1);
     if (!board) throw new AppError('not_found', 'Not found');
     const role = await this.require(userId, board.workspaceId, minimum);

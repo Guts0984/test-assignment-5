@@ -1,8 +1,10 @@
 import {
   createInviteBodySchema,
+  createWorkspaceBodySchema,
   idSchema,
   updateMemberBodySchema,
   type CreateInviteBody,
+  type CreateWorkspaceBody,
   type Invite,
   type Member,
   type UpdateMemberBody,
@@ -44,6 +46,18 @@ export class WorkspacesController {
   @ApiOperation({ summary: 'My workspaces, my role in each, and their boards' })
   list(@CurrentUser() user: AuthUser): Promise<WorkspaceSummary[]> {
     return this.workspaces.listFor(user.id);
+  }
+
+  @Post()
+  @ApiOperation({
+    summary: 'Create a workspace; the caller becomes its owner (any signed-in user)',
+  })
+  @ZodBody(createWorkspaceBodySchema)
+  create(
+    @CurrentUser() user: AuthUser,
+    @Body(new ZodValidationPipe(createWorkspaceBodySchema)) body: CreateWorkspaceBody,
+  ): Promise<WorkspaceSummary> {
+    return this.workspaces.create(user.id, body);
   }
 
   @Get(':id/members')

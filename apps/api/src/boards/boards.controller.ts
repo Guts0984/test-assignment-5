@@ -2,12 +2,26 @@ import {
   createCardBodySchema,
   idSchema,
   pageQuerySchema,
+  renameBoardBodySchema,
   type ActivityPage,
   type BoardSnapshot,
   type Card,
+  type CreatedBoard,
   type CreateCardBody,
+  type RenameBoardBody,
 } from '@kanban/shared';
-import { Body, Controller, Get, Inject, Param, Post, Query } from '@nestjs/common';
+import {
+  Body,
+  Controller,
+  Delete,
+  Get,
+  HttpCode,
+  Inject,
+  Param,
+  Patch,
+  Post,
+  Query,
+} from '@nestjs/common';
 import { ApiOperation, ApiTags } from '@nestjs/swagger';
 import type { z } from 'zod';
 
@@ -33,6 +47,31 @@ export class BoardsController {
     @Param('id', new ZodValidationPipe(idSchema)) id: string,
   ): Promise<BoardSnapshot> {
     return this.boards.get(user.id, id);
+  }
+
+  @Patch(':id')
+  @ApiOperation({
+    summary: 'Rename a board (workspace owner, or the board creator while an editor)',
+  })
+  @ZodBody(renameBoardBodySchema)
+  rename(
+    @CurrentUser() user: AuthUser,
+    @Param('id', new ZodValidationPipe(idSchema)) id: string,
+    @Body(new ZodValidationPipe(renameBoardBodySchema)) body: RenameBoardBody,
+  ): Promise<CreatedBoard> {
+    return this.boards.rename(user, id, body);
+  }
+
+  @Delete(':id')
+  @HttpCode(204)
+  @ApiOperation({
+    summary: 'Delete a board (workspace owner, or the board creator while an editor)',
+  })
+  async remove(
+    @CurrentUser() user: AuthUser,
+    @Param('id', new ZodValidationPipe(idSchema)) id: string,
+  ): Promise<void> {
+    await this.boards.remove(user, id);
   }
 
   @Post(':id/cards')

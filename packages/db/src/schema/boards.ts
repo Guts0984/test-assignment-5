@@ -1,7 +1,8 @@
 import { sql } from 'drizzle-orm';
-import { check, index, pgTable, text, unique, uuid } from 'drizzle-orm/pg-core';
+import { check, index, pgTable, text, timestamp, unique, uuid } from 'drizzle-orm/pg-core';
 
 import { createdAt, positionKey, primaryId } from './columns';
+import { users } from './users';
 import { workspaces } from './workspaces';
 
 export const boards = pgTable(
@@ -12,7 +13,11 @@ export const boards = pgTable(
       .notNull()
       .references(() => workspaces.id, { onDelete: 'cascade' }),
     name: text('name').notNull(),
+    /** Who made the board; null for boards that predate the column and for deleted users. */
+    createdBy: uuid('created_by').references(() => users.id, { onDelete: 'set null' }),
     createdAt: createdAt(),
+    /** Soft delete: the rows (and files of its cards) are cleaned up later; no one can see it. */
+    deletedAt: timestamp('deleted_at', { withTimezone: true }),
   },
   (t) => [
     check('boards_name_length', sql`char_length(${t.name}) between 1 and 100`),

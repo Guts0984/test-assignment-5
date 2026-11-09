@@ -28,7 +28,13 @@ export type Card = z.infer<typeof cardSchema>;
 
 /** Response of `GET /boards/:id`: the whole board in one go. */
 export const boardSchema = z.object({
-  board: z.object({ id: idSchema, workspaceId: idSchema, name: z.string() }),
+  board: z.object({
+    id: idSchema,
+    workspaceId: idSchema,
+    name: z.string(),
+    /** May the caller rename or delete this board (workspace owner, or its creator while an editor)? */
+    canManage: z.boolean(),
+  }),
   /** The caller's role, so the UI can disable what the server would refuse anyway. */
   role: workspaceRoleSchema,
   columns: z.array(columnSchema),
@@ -91,3 +97,22 @@ export const moveCardResponseSchema = z.object({
   rebalanced: z.boolean(),
 });
 export type MoveCardResponse = z.infer<typeof moveCardResponseSchema>;
+
+export const DEFAULT_COLUMN_NAMES = ['To do', 'In progress', 'Done'] as const;
+
+export const createBoardBodySchema = z.object({
+  name: text(1, LIMITS.name),
+  /** Column names, left to right. Omitted: To do / In progress / Done. */
+  columns: z.array(text(1, LIMITS.name)).min(1).max(12).optional(),
+});
+export type CreateBoardBody = z.infer<typeof createBoardBodySchema>;
+
+export const createdBoardSchema = z.object({
+  id: idSchema,
+  workspaceId: idSchema,
+  name: z.string(),
+});
+export type CreatedBoard = z.infer<typeof createdBoardSchema>;
+
+export const renameBoardBodySchema = z.object({ name: text(1, LIMITS.name) });
+export type RenameBoardBody = z.infer<typeof renameBoardBodySchema>;

@@ -25,7 +25,12 @@ export const card = (n: number, overrides: Partial<Card> = {}): Card => ({
 
 /** Three cards in "todo" (a1, a2, a3), one in "doing" (a1). */
 export const board = (role: BoardSnapshot['role'] = 'editor'): BoardSnapshot => ({
-  board: { id: ids.board, workspaceId: '55555555-5555-4555-8555-555555555555', name: 'Roadmap' },
+  board: {
+    id: ids.board,
+    workspaceId: '55555555-5555-4555-8555-555555555555',
+    name: 'Roadmap',
+    canManage: role === 'owner',
+  },
   role,
   columns: [
     { id: ids.todo, boardId: ids.board, name: 'To do', position: 'a0' },

@@ -282,6 +282,14 @@ await check(
       `register: ${registered.status} ${JSON.stringify(registered.body)}`,
     );
     const inviteeCookie = (registered.headers.get('set-cookie') ?? '').split(';')[0] ?? '';
+    // the invitation is also visible inside the app, so it can be accepted without the email
+    const inApp = (await api('/me/invites', { cookie: inviteeCookie })).body as unknown as {
+      workspaceName: string;
+    }[];
+    assert(
+      inApp.some((i) => i.workspaceName === 'Acme Product'),
+      'the invitation is not listed in the app',
+    );
     const token = link.split('/').pop();
     const accepted = await api(`/invites/${token}/accept`, {
       method: 'POST',

@@ -623,3 +623,49 @@ describe('abuse', () => {
     expect(client.socket.connected).toBe(true);
   });
 });
+
+describe('renaming and deleting a board', () => {
+  it('a rename reaches watchers on both instances; a delete reaches them and then closes the board for them', async () => {
+    const own = await makeBoard(workspaceId);
+    const watcherOnOne = await open(one, bob);
+    const watcherOnTwo = await open(two, carol);
+    expect((await join(watcherOnOne, own.id)).ok).toBe(true);
+    expect((await join(watcherOnTwo, own.id)).ok).toBe(true);
+
+    const renamed = await call(
+      `${one.url}/boards/${own.id}`,
+      asJson(alice, 'PATCH', { name: 'Fresh name' }),
+    );
+    expect(renamed.status).toBe(200);
+    for (const watcher of [watcherOnOne, watcherOnTwo]) {
+      await waitFor(() => namesOf(watcher).includes('board.renamed'), 8_000, 'board.renamed');
+      expect(watcher.received.find((m) => m.name === 'board.renamed')?.payload).toEqual({
+        boardId: own.id,
+        name: 'Fresh name',
+      });
+    }
+
+    const deleted = await call(`${two.url}/boards/${own.id}`, {
+      method: 'DELETE',
+      headers: { cookie: alice.cookie },
+    });
+    expect(deleted.status).toBe(204);
+    for (const watcher of [watcherOnOne, watcherOnTwo]) {
+      await waitFor(() => namesOf(watcher).includes('board.deleted'), 8_000, 'board.deleted');
+      // their next message is refused: the board no longer exists for them
+      watcher.socket.emit('presence.heartbeat', { boardId: own.id });
+      await waitFor(() => namesOf(watcher).includes('access.revoked'), 8_000, 'access.revoked');
+    }
+    const late = await open(one, bob);
+    expect(await join(late, own.id)).toEqual({ ok: false, error: 'not_found' });
+  });
+
+  it('only people watching that board hear about it', async () => {
+    const own = await makeBoard(workspaceId);
+    const elsewhere = await open(one, bob);
+    expect((await join(elsewhere, board.id)).ok).toBe(true);
+    await call(`${one.url}/boards/${own.id}`, asJson(alice, 'PATCH', { name: 'Quiet' }));
+    await sleep(400);
+    expect(namesOf(elsewhere)).not.toContain('board.renamed');
+  });
+});

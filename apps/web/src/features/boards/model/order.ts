@@ -59,6 +59,8 @@ export const resolveDrop = (
   } else {
     overCard = snapshot.cards.find((card) => card.id === overId);
     if (!overCard) return null;
+    // Released over the card's own place (picked up and put back): nothing to move.
+    if (overCard.id === activeId) return null;
     columnId = overCard.columnId;
   }
   if (!snapshot.columns.some((column) => column.id === columnId)) return null;

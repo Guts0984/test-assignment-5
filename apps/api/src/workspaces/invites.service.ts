@@ -7,8 +7,15 @@ import {
   workspaceMembers,
   workspaces,
   type DatabaseHandle,
+  type Transaction,
 } from '@kanban/db';
-import type { CreateInviteBody, Invite, InvitePreview, WorkspaceRole } from '@kanban/shared';
+import type {
+  CreateInviteBody,
+  Invite,
+  InvitePreview,
+  MyInvite,
+  WorkspaceRole,
+} from '@kanban/shared';
 import { Inject, Injectable } from '@nestjs/common';
 import { and, eq, gt, isNull } from 'drizzle-orm';
 
@@ -156,24 +163,89 @@ export class InvitesService {
         throw new AppError('forbidden', 'This invitation was sent to a different email address');
       }
 
-      await tx
-        .update(workspaceInvites)
-        .set({ acceptedAt: new Date() })
-        .where(eq(workspaceInvites.id, invite.id));
-      await tx
-        .insert(workspaceMembers)
-        .values({ workspaceId: invite.workspaceId, userId: user.id, role: invite.role })
-        .onConflictDoNothing();
-      const [member] = await tx
-        .select({ role: workspaceMembers.role })
-        .from(workspaceMembers)
+      return this.consume(tx, invite, user);
+    });
+  }
+
+  /** Marks the invitation used and makes the user a member (keeping any role they already have). */
+  private async consume(
+    tx: Transaction,
+    invite: typeof workspaceInvites.$inferSelect,
+    user: AuthUser,
+  ): Promise<{ workspaceId: string; role: WorkspaceRole }> {
+    await tx
+      .update(workspaceInvites)
+      .set({ acceptedAt: new Date() })
+      .where(eq(workspaceInvites.id, invite.id));
+    await tx
+      .insert(workspaceMembers)
+      .values({ workspaceId: invite.workspaceId, userId: user.id, role: invite.role })
+      .onConflictDoNothing();
+    const [member] = await tx
+      .select({ role: workspaceMembers.role })
+      .from(workspaceMembers)
+      .where(
+        and(
+          eq(workspaceMembers.workspaceId, invite.workspaceId),
+          eq(workspaceMembers.userId, user.id),
+        ),
+      );
+    return { workspaceId: invite.workspaceId, role: member?.role ?? invite.role };
+  }
+
+  /** Open invitations sent to the signed-in user's own email address (nobody else's). */
+  async listMine(user: AuthUser): Promise<MyInvite[]> {
+    const rows = await this.database.db
+      .select({
+        id: workspaceInvites.id,
+        workspaceId: workspaceInvites.workspaceId,
+        workspaceName: workspaces.name,
+        role: workspaceInvites.role,
+        invitedBy: users.name,
+        expiresAt: workspaceInvites.expiresAt,
+      })
+      .from(workspaceInvites)
+      .innerJoin(workspaces, eq(workspaces.id, workspaceInvites.workspaceId))
+      .innerJoin(users, eq(users.id, workspaceInvites.invitedBy))
+      .where(
+        and(
+          eq(workspaceInvites.email, user.email),
+          isNull(workspaceInvites.acceptedAt),
+          gt(workspaceInvites.expiresAt, new Date()),
+        ),
+      )
+      .orderBy(workspaceInvites.createdAt);
+    return rows.flatMap((row) =>
+      row.role === 'owner'
+        ? []
+        : [{ ...row, role: row.role, expiresAt: row.expiresAt.toISOString() }],
+    );
+  }
+
+  /**
+   * Accept one of my own open invitations from inside the app, without the emailed link. Only an
+   * invitation addressed to my email can be accepted; anyone else's looks like it does not exist.
+   */
+  async acceptMine(
+    user: AuthUser,
+    inviteId: string,
+  ): Promise<{ workspaceId: string; role: WorkspaceRole }> {
+    return this.database.db.transaction(async (tx) => {
+      const [invite] = await tx
+        .select()
+        .from(workspaceInvites)
         .where(
           and(
-            eq(workspaceMembers.workspaceId, invite.workspaceId),
-            eq(workspaceMembers.userId, user.id),
+            eq(workspaceInvites.id, inviteId),
+            eq(workspaceInvites.email, user.email),
+            isNull(workspaceInvites.acceptedAt),
+            gt(workspaceInvites.expiresAt, new Date()),
           ),
-        );
-      return { workspaceId: invite.workspaceId, role: member?.role ?? invite.role };
+        )
+        .for('update')
+        .limit(1);
+      if (!invite) throw new AppError('not_found', 'Not found');
+      return this.consume(tx, invite, user);
     });
   }
 }

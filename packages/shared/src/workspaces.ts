@@ -3,6 +3,8 @@ import { z } from 'zod';
 import {
   emailSchema,
   idSchema,
+  LIMITS,
+  text,
   timestampSchema,
   userRefSchema,
   workspaceRoleSchema,
@@ -16,6 +18,9 @@ export const workspaceSummarySchema = z.object({
   boards: z.array(z.object({ id: idSchema, name: z.string() })),
 });
 export type WorkspaceSummary = z.infer<typeof workspaceSummarySchema>;
+
+export const createWorkspaceBodySchema = z.object({ name: text(1, LIMITS.name) });
+export type CreateWorkspaceBody = z.infer<typeof createWorkspaceBodySchema>;
 
 export const memberSchema = z.object({
   user: userRefSchema.extend({ email: z.string() }),
@@ -53,3 +58,14 @@ export type InvitePreview = z.infer<typeof invitePreviewSchema>;
 
 export const updateMemberBodySchema = z.object({ role: workspaceRoleSchema });
 export type UpdateMemberBody = z.infer<typeof updateMemberBodySchema>;
+
+/** An invitation addressed to the signed-in user's own email, shown in the app so it can be accepted without the email. */
+export const myInviteSchema = z.object({
+  id: idSchema,
+  workspaceId: idSchema,
+  workspaceName: z.string(),
+  role: inviteRoleSchema,
+  invitedBy: z.string(),
+  expiresAt: timestampSchema,
+});
+export type MyInvite = z.infer<typeof myInviteSchema>;

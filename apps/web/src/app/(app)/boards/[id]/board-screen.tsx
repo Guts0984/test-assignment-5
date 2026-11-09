@@ -5,7 +5,7 @@ import { useQuery } from '@tanstack/react-query';
 import Link from 'next/link';
 import { useMemo } from 'react';
 
-import { BoardView, boardKey } from '@/features/boards';
+import { BoardMenu, BoardView, boardKey } from '@/features/boards';
 import { PresenceBar } from '@/features/presence';
 import { useRealtime } from '@/features/realtime';
 
@@ -43,6 +43,7 @@ export const BoardScreen = ({ boardId, initial }: { boardId: string; initial: Bo
           <span className="rounded bg-muted px-2 py-0.5 text-xs">{snapshot.role}</span>
         </div>
         <div className="flex flex-wrap items-center gap-3">
+          <BoardMenu board={snapshot.board} />
           <PresenceBar users={presence} currentUserId="" />
           <span
             role="status"

@@ -61,7 +61,7 @@ export const asJson = (user: Pick<TestUser, 'cookie'>, method: string, json: unk
   headers: { cookie: user.cookie },
 });
 
-/** Creates a workspace with the given members (there is no API endpoint for this by design). */
+/** Creates a workspace with the given members (directly in the database, whoever may create one through the API). */
 export const makeWorkspace = async (
   members: { user: Pick<TestUser, 'id'>; role: WorkspaceRole }[],
   boardNames: string[] = [],

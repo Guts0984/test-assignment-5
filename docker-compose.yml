@@ -165,7 +165,7 @@ services:
     image: axllent/mailpit:v1.33.0
     restart: unless-stopped
     ports:
-      - '8025:8025' # web UI (the SMTP port 1025 stays internal)
+      - '${MAILPIT_UI_PORT:-8025}:8025' # web UI (the SMTP port 1025 stays internal)
     healthcheck:
       test: ['CMD', '/mailpit', 'readyz']
       interval: 5s
@@ -178,8 +178,12 @@ services:
     restart: unless-stopped
     environment:
       S3_BUCKET: ${S3_BUCKET:-kanban-files}
+      # Per visitor address; the defaults are the production values (e2e runs raise them because
+      # all of its browsers share one address).
+      PAGE_RATE_PER_SECOND: ${PAGE_RATE_PER_SECOND:-20}
+      API_RATE_PER_SECOND: ${API_RATE_PER_SECOND:-60}
     ports:
-      - '8080:8080'
+      - '${NGINX_PORT:-8080}:8080'
     volumes:
       - ./infra/nginx/default.conf.template:/etc/nginx/templates/default.conf.template:ro
       - ./infra/nginx/proxy_headers.conf:/etc/nginx/proxy_headers.conf:ro

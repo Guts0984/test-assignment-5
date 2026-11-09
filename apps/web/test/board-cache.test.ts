@@ -149,6 +149,10 @@ describe('applying realtime events to the cached board', () => {
 describe('where a dropped card lands', () => {
   const drop = (activeId: string, overId: string) => resolveDrop(board(), activeId, overId);
 
+  it('putting a card back on its own place is not a move (it must not jump to the end of the column)', () => {
+    for (const n of [1, 2, 3]) expect(drop(cardId(n), cardId(n))).toBeNull();
+  });
+
   it('dropping on a card in the same column: moving down puts it after, moving up puts it before', () => {
     expect(drop(cardId(1), cardId(3))).toMatchObject({
       columnId: ids.todo,

@@ -6,11 +6,12 @@ import { ActivityService } from './activity.service';
 import { BoardsController } from './boards.controller';
 import { BoardsService } from './boards.service';
 import { CardsController } from './cards.controller';
+import { WorkspaceBoardsController } from './workspace-boards.controller';
 import { CardsService } from './cards.service';
 
 @Module({
   imports: [WorkspacesModule],
-  controllers: [BoardsController, CardsController],
+  controllers: [BoardsController, CardsController, WorkspaceBoardsController],
   providers: [BoardsService, CardsService, ActivityService, BoardEvents],
   exports: [ActivityService, BoardEvents, BoardsService],
 })

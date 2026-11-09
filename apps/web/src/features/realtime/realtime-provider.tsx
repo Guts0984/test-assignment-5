@@ -13,6 +13,7 @@ import { useQueryClient } from '@tanstack/react-query';
 import { useRouter } from 'next/navigation';
 import {
   createContext,
+  useCallback,
   useContext,
   useEffect,
   useMemo,
@@ -22,7 +23,7 @@ import {
 } from 'react';
 import { io, type Socket } from 'socket.io-client';
 
-import { applyEvent, boardKey, trackerFor } from '@/features/boards';
+import { applyEvent, boardKey, trackerFor, wasDeletedHere } from '@/features/boards';
 import { toast } from '@/shared/ui/toaster';
 
 export type ConnectionStatus = 'connecting' | 'live' | 'offline';
@@ -57,6 +58,8 @@ export const RealtimeProvider = ({
   const [status, setStatus] = useState<ConnectionStatus>('connecting');
   const [presence, setPresence] = useState<PresenceUser[]>([]);
   const socketRef = useRef<Socket | null>(null);
+  /** The card being edited right now; re-announced after every (re)join, so a card opened before the socket was ready still shows. */
+  const editingRef = useRef<string | null>(null);
 
   useEffect(() => {
     const socket = io({ path: '/socket.io', transports: ['websocket'], withCredentials: true });
@@ -77,6 +80,8 @@ export const RealtimeProvider = ({
         client.setQueryData(boardKey(boardId), reply.snapshot);
         setPresence(reply.presence);
         setStatus('live');
+        if (editingRef.current)
+          socket.emit('presence.editing', { boardId, cardId: editingRef.current });
       } catch {
         setStatus('offline');
       }
@@ -128,6 +133,16 @@ export const RealtimeProvider = ({
       (payload) =>
         void client.invalidateQueries({ queryKey: ['attachments', payload.attachment.cardId] }),
     );
+    on('board.renamed', (payload) =>
+      client.setQueryData<BoardSnapshot>(boardKey(boardId), (current) =>
+        current ? { ...current, board: { ...current.board, name: payload.name } } : current,
+      ),
+    );
+    on('board.deleted', () => {
+      if (!wasDeletedHere(boardId)) toast('This board was deleted.', 'error');
+      router.replace('/');
+      router.refresh();
+    });
     on('presence.snapshot', (payload) => setPresence(payload.users));
     on('access.revoked', () => {
       toast('You no longer have access to this board.', 'error');
@@ -148,16 +163,19 @@ export const RealtimeProvider = ({
     };
   }, [boardId, client, router]);
 
+  // Stable between renders: components run it in effects, which must not restart on every
+  // presence change.
+  const setEditing = useCallback(
+    (cardId: string | null) => {
+      editingRef.current = cardId;
+      if (socketRef.current?.connected)
+        socketRef.current.emit('presence.editing', { boardId, cardId });
+    },
+    [boardId],
+  );
   const value = useMemo<Context>(
-    () => ({
-      status,
-      presence,
-      setEditing: (cardId) => {
-        if (socketRef.current?.connected)
-          socketRef.current.emit('presence.editing', { boardId, cardId });
-      },
-    }),
-    [status, presence, boardId],
+    () => ({ status, presence, setEditing }),
+    [status, presence, setEditing],
   );
   return <RealtimeContext.Provider value={value}>{children}</RealtimeContext.Provider>;
 };
