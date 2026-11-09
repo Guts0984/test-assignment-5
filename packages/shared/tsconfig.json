@@ -2,6 +2,7 @@
   "extends": "../../tsconfig.base.json",
   "compilerOptions": {
     // Browser-safe package: no Node globals may be used by accident.
+    "lib": ["ES2023", "DOM"],
     "types": []
   },
   "include": ["src", "test"]

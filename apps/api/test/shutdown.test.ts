@@ -100,6 +100,7 @@ describe('the real process', () => {
     const { postgres, redis, s3 } = inject('infra');
     return {
       PORT: await freePort(),
+      CLIENT_IP_SECRET: 'process-test-client-ip-secret',
       POSTGRES_USER: postgres.user,
       POSTGRES_PASSWORD: postgres.password,
       POSTGRES_DB: postgres.database,
@@ -139,6 +140,18 @@ describe('the real process', () => {
     expect(result, 'process did not exit after SIGTERM').not.toBe('timeout');
     expect(result).toEqual({ code: 0, signal: null });
     expect(running.output().stdout).toContain('shutdown complete');
+  });
+
+  it('refuses to start without the client-IP secret: it has no default', async () => {
+    const { CLIENT_IP_SECRET: _omitted, ...incomplete } = await validEnv();
+    const running = startProcess(incomplete);
+    const result = await Promise.race([
+      running.exited,
+      sleep(20_000).then(() => 'timeout' as const),
+    ]);
+    expect(result).not.toBe('timeout');
+    expect(result).not.toMatchObject({ code: 0 });
+    expect(running.output().stderr).toContain('CLIENT_IP_SECRET');
   });
 
   it('refuses to start without a secret, naming it but not printing other values', async () => {

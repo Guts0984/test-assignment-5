@@ -1,6 +1,7 @@
 packages:
   - apps/*
   - packages/*
+  - e2e
 
 # Install scripts are denied unless a dependency genuinely needs them.
 # esbuild ships its binary as a prebuilt platform package; cpu-features and ssh2 are optional

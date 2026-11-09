@@ -2,7 +2,16 @@ import { Redis } from 'ioredis';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { inject } from 'vitest';
 
-import { call, expectError, startApp, testConfig, type RunningApp } from './support/app';
+import { signClientIp } from '@kanban/shared';
+
+import {
+  call,
+  expectError,
+  startApp,
+  TEST_CLIENT_IP_SECRET,
+  testConfig,
+  type RunningApp,
+} from './support/app';
 
 const LIMIT = 5;
 let first: RunningApp;
@@ -121,5 +130,79 @@ describe('when Redis is unreachable', () => {
     } finally {
       await broken.close();
     }
+  });
+});
+
+/**
+ * The Next.js server calls the API on behalf of visitors, so every such call comes from the SAME
+ * address (the web server). Without the visitor's address passed along and verified, they would
+ * all share one counter: one spammer would lock out everybody.
+ */
+describe('calls made by the web server on behalf of visitors', () => {
+  const secret = TEST_CLIENT_IP_SECRET;
+  const onBehalfOf = async (ip: string, extra: Record<string, string> = {}) => ({
+    headers: { ...(await signClientIp(secret, ip)), ...extra },
+  });
+  const hitMany = async (n: number, init: () => Promise<{ headers: Record<string, string> }>) => {
+    const statuses: number[] = [];
+    for (let i = 0; i < n; i += 1)
+      statuses.push((await call(`${first.url}/t/db`, await init())).status);
+    return statuses;
+  };
+
+  it('counts every visitor separately, although all calls share one connection address', async () => {
+    const [a, b] = [freshIp(), freshIp()];
+    expect(await hitMany(LIMIT, () => onBehalfOf(a))).toEqual(Array(LIMIT).fill(200));
+    expect((await call(`${first.url}/t/db`, await onBehalfOf(a))).status).toBe(429); // visitor A is out of budget...
+    expect(await hitMany(LIMIT, () => onBehalfOf(b))).toEqual(Array(LIMIT).fill(200)); // ...visitor B is not affected
+  });
+
+  it('counts per visitor on both instances', async () => {
+    const ip = freshIp();
+    for (let i = 0; i < LIMIT; i += 1) {
+      expect(
+        (await call(`${i % 2 ? first.url : second.url}/t/db`, await onBehalfOf(ip))).status,
+      ).toBe(200);
+    }
+    expectError(await call(`${second.url}/t/db`, await onBehalfOf(ip)), 429, 'rate_limited');
+    expectError(await call(`${first.url}/t/db`, await onBehalfOf(ip)), 429, 'rate_limited');
+  });
+
+  it('prefers the signed address over the one nginx put in X-Real-IP', async () => {
+    const visitor = freshIp();
+    const nginxSaw = freshIp();
+    for (let i = 0; i < LIMIT; i += 1)
+      await call(`${first.url}/t/db`, await onBehalfOf(visitor, { 'x-real-ip': nginxSaw }));
+    expect(
+      (await call(`${first.url}/t/db`, await onBehalfOf(visitor, { 'x-real-ip': nginxSaw })))
+        .status,
+    ).toBe(429);
+    expect((await call(`${first.url}/t/db`, asClient(nginxSaw))).status).toBe(200); // nginx's address was not charged
+  });
+
+  it('does not let a browser choose its own address: unsigned, forged or stale claims are ignored', async () => {
+    const real = freshIp();
+    const forgeries: Record<string, string>[] = [
+      { 'x-client-ip': '203.0.113.1' }, // no signature at all
+      { ...(await signClientIp('some-other-secret-0123456789', '203.0.113.2')) }, // signed with a guessed secret
+      { ...(await signClientIp(secret, '203.0.113.3', Date.now() - 120_000)) }, // too old
+      { ...(await signClientIp(secret, '203.0.113.4')), 'x-client-ip': '203.0.113.5' }, // address swapped after signing
+      { 'x-client-ip': '203.0.113.6', 'x-client-ip-signature': 'garbage' },
+    ];
+    // All of them fall back to the real address, so changing the claim never yields a fresh budget.
+    const statuses: number[] = [];
+    for (let i = 0; i < LIMIT + forgeries.length; i += 1) {
+      const forged = forgeries[i % forgeries.length] ?? {};
+      statuses.push((await call(`${first.url}/t/db`, asClient(real, forged))).status);
+    }
+    expect(statuses.slice(0, LIMIT).every((s) => s === 200)).toBe(true);
+    expect(statuses.slice(LIMIT).every((s) => s === 429)).toBe(true);
+  });
+
+  it('shows the cost of forgetting to pass the address: every visitor shares one budget', async () => {
+    // The same situation as above, but the web server "forgot" the header: all visitors look alike.
+    const sharedPeer = freshIp();
+    for (let i = 0; i < LIMIT; i += 1) await call(`${first.url}/t/db`, asClient(sharedPeer)); // visitor A spends it all
+    expect((await call(`${first.url}/t/db`, asClient(sharedPeer))).status).toBe(429); // visitor B is locked out too
   });
 });

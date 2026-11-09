@@ -19,6 +19,9 @@ x-api: &api
   volumes:
     # The app reads its configuration only from this file (see apps/api/src/env.ts).
     - ./.env:/app/.env:ro
+  networks:
+    default:
+      aliases: [api] # nginx talks to "api"; Docker DNS answers with both instances
   healthcheck:
     test: ['CMD', 'wget', '-qO-', 'http://127.0.0.1:3001/health']
     interval: 5s
@@ -106,6 +109,41 @@ services:
 
   api2:
     <<: *api
+
+  mailpit:
+    image: axllent/mailpit:v1.33.0
+    restart: unless-stopped
+    ports:
+      - '8025:8025' # web UI (the SMTP port 1025 stays internal)
+    healthcheck:
+      test: ['CMD', '/mailpit', 'readyz']
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+  # The only public entry point (besides the Mailpit UI).
+  nginx:
+    image: nginxinc/nginx-unprivileged:1.28-alpine
+    restart: unless-stopped
+    environment:
+      S3_BUCKET: ${S3_BUCKET:-kanban-files}
+    ports:
+      - '8080:8080'
+    volumes:
+      - ./infra/nginx/default.conf.template:/etc/nginx/templates/default.conf.template:ro
+      - ./infra/nginx/proxy_headers.conf:/etc/nginx/proxy_headers.conf:ro
+    depends_on:
+      api1:
+        condition: service_healthy
+      api2:
+        condition: service_healthy
+      minio:
+        condition: service_healthy
+    healthcheck:
+      test: ['CMD', 'wget', '-qO-', 'http://127.0.0.1:8080/nginx-health']
+      interval: 5s
+      timeout: 3s
+      retries: 10
 
   # Development helper, started only when COMPOSE_PROFILES=dev is set in .env.
   # Forwards a host port (127.0.0.1 only) to PostgreSQL. Not part of the real stack.

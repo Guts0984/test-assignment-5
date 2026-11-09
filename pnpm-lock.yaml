@@ -283,6 +283,18 @@ importers:
 
   apps/worker: {}
 
+  e2e:
+    devDependencies:
+      '@kanban/env':
+        specifier: workspace:*
+        version: link:../packages/env
+      socket.io-client:
+        specifier: 4.8.4
+        version: 4.8.4
+      tsx:
+        specifier: 4.23.15
+        version: 4.23.15
+
   packages/db:
     dependencies:
       '@kanban/env':

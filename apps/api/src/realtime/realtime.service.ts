@@ -14,6 +14,8 @@ import { SessionService } from '../auth/session.service';
 import { BoardsService } from '../boards/boards.service';
 import type { AppConfig } from '../config';
 import { APP_CONFIG, DATABASE, REDIS } from '../infra/tokens';
+import { clientIpOf } from '../rate-limit/client-ip';
+import { RateLimiter } from '../rate-limit/rate-limiter';
 import { WorkspaceAccessService } from '../workspaces/workspace-access.service';
 import { MEMBERSHIP_CHANNEL, membershipEventSchema } from '../workspaces/membership-events';
 import { BoardEvents, boardRoom } from './board-events';
@@ -21,6 +23,8 @@ import { PresenceService } from './presence.service';
 
 type SocketData = {
   user: AuthUser;
+  /** The visitor's address, as the HTTP limiter sees it. */
+  ip: string;
   /** Boards this connection is subscribed to, with the workspace each belongs to. */
   boards: Map<string, string>;
   /** Flood protection (token bucket) and the number of messages dropped so far. */
@@ -57,6 +61,8 @@ export class RealtimeService implements OnModuleDestroy {
   private readonly redisClients: Redis[] = [];
   private sweeper?: NodeJS.Timeout;
   private closing = false;
+  /** Open connections per address on this instance. */
+  private readonly connectionsByIp = new Map<string, number>();
   private readonly lastPresence = new Map<string, string>();
 
   constructor(
@@ -67,6 +73,7 @@ export class RealtimeService implements OnModuleDestroy {
     @Inject(WorkspaceAccessService) private readonly access: WorkspaceAccessService,
     @Inject(BoardsService) private readonly boards: BoardsService,
     @Inject(PresenceService) private readonly presence: PresenceService,
+    @Inject(RateLimiter) private readonly limiter: RateLimiter,
     @Inject(BoardEvents) private readonly events: BoardEvents,
   ) {}
 
@@ -78,6 +85,12 @@ export class RealtimeService implements OnModuleDestroy {
       maxHttpBufferSize: 64 * 1024,
       pingInterval: 5_000,
       pingTimeout: 5_000,
+      allowRequest: (request, callback) => {
+        this.admit(request.headers, request.socket.remoteAddress).then(
+          (verdict) => callback(verdict, verdict === null),
+          () => callback('unavailable', false),
+        );
+      },
     });
     this.io = io;
 
@@ -149,8 +162,14 @@ export class RealtimeService implements OnModuleDestroy {
       const sessionId = readCookie(socket.handshake.headers.cookie, SESSION_COOKIE);
       const user = sessionId ? await this.sessions.resolve(sessionId) : null;
       if (!user) return next(new Error('unauthorized'));
+      const ip = await clientIpOf(
+        socket.handshake.headers,
+        socket.request.socket.remoteAddress,
+        this.config.clientIpSecret,
+      );
       socket.data = {
         user,
+        ip,
         boards: new Map(),
         tokens: BUCKET_CAPACITY,
         refilledAt: Date.now(),
@@ -162,10 +181,44 @@ export class RealtimeService implements OnModuleDestroy {
     }
   }
 
+  /**
+   * Runs for every WebSocket upgrade BEFORE the connection exists. WebSocket traffic never passes
+   * through the HTTP rate limiter (Express does not see it), so it needs limits of its own, keyed
+   * by the same visitor address: connections per minute (counted across all API instances) and
+   * simultaneous connections. Returns null to admit, or an error code to refuse.
+   */
+  private async admit(
+    headers: Record<string, string | string[] | undefined>,
+    peerAddress: string | undefined,
+  ): Promise<string | null> {
+    const ip = await clientIpOf(headers, peerAddress, this.config.clientIpSecret);
+    const { wsConnectsPerMinute, wsMaxConnectionsPerIp } = this.config.rateLimit;
+    if ((this.connectionsByIp.get(ip) ?? 0) >= wsMaxConnectionsPerIp) return 'too_many_connections';
+    const attempt = await this.limiter.hit(`rl:ws-connect:${ip}`, wsConnectsPerMinute, 60_000);
+    return attempt.allowed ? null : 'rate_limited';
+  }
+
   private onConnection(socket: Socket): void {
+    const { ip } = dataOf(socket);
+    this.connectionsByIp.set(ip, (this.connectionsByIp.get(ip) ?? 0) + 1);
+    socket.on('disconnect', () => {
+      const left = (this.connectionsByIp.get(ip) ?? 1) - 1;
+      if (left <= 0) this.connectionsByIp.delete(ip);
+      else this.connectionsByIp.set(ip, left);
+    });
+
+    // Two layers: this connection's own bucket, then the visitor's total over ALL its connections
+    // (opening many sockets must not multiply the allowance).
     socket.use((_packet, next) => {
-      if (this.allow(socket)) return next();
-      next(new Error('rate_limited'));
+      if (!this.allow(socket)) return next(new Error('rate_limited'));
+      this.limiter
+        .hit(`rl:ws-msg:${ip}`, this.config.rateLimit.wsMessagesPer10s, 10_000)
+        .then((result) => {
+          if (result.allowed) return next();
+          this.noteDrop(socket);
+          next(new Error('rate_limited'));
+        })
+        .catch(() => next());
     });
 
     socket.on('board.join', (payload: unknown, ack: unknown) =>
@@ -195,9 +248,14 @@ export class RealtimeService implements OnModuleDestroy {
       data.tokens -= 1;
       return true;
     }
+    this.noteDrop(socket);
+    return false;
+  }
+
+  private noteDrop(socket: Socket): void {
+    const data = dataOf(socket);
     data.dropped += 1;
     if (data.dropped >= MAX_DROPPED) socket.disconnect(true);
-    return false;
   }
 
   // ---- messages from clients ----------------------------------------------------------------

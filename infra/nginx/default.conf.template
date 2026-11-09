@@ -1,0 +1,93 @@
+# The only public entry point. ${S3_BUCKET} is filled in from the environment when the container
+# starts; every other $variable below is an nginx variable.
+
+map $http_upgrade $connection_upgrade {
+  default upgrade;
+  ''      close;
+}
+
+# Per visitor address. Pages are cheap to ask for but expensive to render, so they are capped
+# at 20 a second; API calls are also limited precisely by the API itself (shared Redis counters).
+limit_req_zone  $binary_remote_addr zone=pages:10m    rate=20r/s;
+limit_req_zone  $binary_remote_addr zone=apicalls:10m rate=60r/s;
+limit_conn_zone $binary_remote_addr zone=perip:10m;
+limit_req_status  429;
+limit_conn_status 429;
+
+server {
+  listen 8080;
+  server_name _;
+  server_tokens off;
+
+  # API bodies are at most 1 MB; the large uploads go to object storage below.
+  client_max_body_size 11m;
+
+  # Docker's DNS server. Names are re-resolved every few seconds, so recreating or scaling the
+  # API containers needs no nginx restart (a fixed `upstream` block would pin the old addresses).
+  resolver 127.0.0.11 valid=5s ipv6=off;
+  set $api     http://api:3001;
+  set $web     http://web:3000;
+  set $storage http://minio:9000;
+
+  add_header X-Content-Type-Options nosniff always;
+  add_header Referrer-Policy strict-origin-when-cross-origin always;
+  add_header X-Frame-Options DENY always;
+
+  error_page 429 @too_many_requests;
+  location @too_many_requests {
+    default_type application/json;
+    return 429 '{"error":{"code":"rate_limited","message":"Too many requests, slow down"}}';
+  }
+
+  location = /nginx-health {
+    access_log off;
+    default_type text/plain;
+    return 200 'ok';
+  }
+
+  # Browser data calls: /api/boards/1 -> the API's /boards/1
+  location /api/ {
+    limit_req  zone=apicalls burst=120 nodelay;
+    limit_conn perip 100;
+    rewrite ^/api/(.*)$ /$1 break;
+    include /etc/nginx/proxy_headers.conf;
+    proxy_pass $api;
+  }
+
+  # Live updates. Long-lived connections: a generous read timeout, and a cap per visitor.
+  location /socket.io/ {
+    limit_conn perip 100;
+    include /etc/nginx/proxy_headers.conf;
+    proxy_read_timeout 3600s;
+    proxy_send_timeout 3600s;
+    proxy_pass $api;
+  }
+
+  # Swagger UI and the OpenAPI document.
+  location /docs {
+    limit_req zone=apicalls burst=40 nodelay;
+    include /etc/nginx/proxy_headers.conf;
+    proxy_pass $api;
+  }
+
+  # Attachment upload and download go straight to object storage through here, so the browser
+  # only ever talks to this one address. The signed URLs are signed for THIS host name, so the
+  # Host header must reach storage unchanged. Uploads are streamed, not buffered.
+  # The upload form posts to "/<bucket>" WITHOUT a trailing slash. A plain "/<bucket>/" prefix
+  # location would redirect that to the slash form, and the redirect turns the POST into a GET.
+  location ~ ^/${S3_BUCKET}(/|$) {
+    limit_req zone=apicalls burst=40 nodelay;
+    include /etc/nginx/proxy_headers.conf;
+    proxy_request_buffering off;
+    proxy_buffering off;
+    proxy_pass $storage;
+  }
+
+  # Everything else is the web app.
+  location / {
+    limit_req  zone=pages burst=40 nodelay;
+    limit_conn perip 100;
+    include /etc/nginx/proxy_headers.conf;
+    proxy_pass $web;
+  }
+}

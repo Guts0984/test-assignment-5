@@ -18,5 +18,19 @@ export type AppConfig = {
   };
   /** How long a download link stays valid. */
   downloadLinkTtlSeconds: number;
-  rateLimit: { perMinute: number; authPerMinute: number };
+  /**
+   * Shared with the Next.js server only: lets it vouch for the visitor's address when it calls
+   * the API on the visitor's behalf (see packages/shared/src/client-ip.ts).
+   */
+  clientIpSecret: string;
+  rateLimit: {
+    perMinute: number;
+    authPerMinute: number;
+    /** Socket.IO: new connections per address per minute, shared by all API instances. */
+    wsConnectsPerMinute: number;
+    /** Socket.IO: messages per address per 10 seconds over ALL its connections, shared by all instances. */
+    wsMessagesPer10s: number;
+    /** Socket.IO: simultaneous connections per address on one instance. */
+    wsMaxConnectionsPerIp: number;
+  };
 };

@@ -17,7 +17,7 @@ export const configureApp = (app: NestExpressApplication, config: AppConfig): vo
   const requestLogger = new Logger('Http');
   app.use(requestContext((entry) => requestLogger.log(JSON.stringify(entry))));
   app.use(originGuard(config.appOrigin));
-  app.use(rateLimitMiddleware(app.get(RateLimiter), config.rateLimit));
+  app.use(rateLimitMiddleware(app.get(RateLimiter), config));
   app.useBodyParser('json', { limit: '1mb' });
   app.useGlobalFilters(new AllExceptionsFilter());
 

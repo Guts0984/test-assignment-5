@@ -10,8 +10,14 @@ import { configureApp } from '../../src/app.setup';
 import type { AppConfig } from '../../src/config';
 import { TestModule } from './test-module';
 
+export const TEST_CLIENT_IP_SECRET = 'test-client-ip-secret-0123456789';
+
 /** Config pointing at the shared containers; `overrides` swaps individual parts. */
-export const testConfig = (overrides: Partial<AppConfig> = {}): AppConfig => {
+type ConfigOverrides = Partial<Omit<AppConfig, 'rateLimit'>> & {
+  rateLimit?: Partial<AppConfig['rateLimit']>;
+};
+
+export const testConfig = (overrides: ConfigOverrides = {}): AppConfig => {
   const infra = inject('infra');
   return {
     port: 0,
@@ -29,8 +35,17 @@ export const testConfig = (overrides: Partial<AppConfig> = {}): AppConfig => {
       secretKey: infra.s3.secretKey,
     },
     downloadLinkTtlSeconds: 300,
-    rateLimit: { perMinute: 10_000, authPerMinute: 10_000 },
+    clientIpSecret: TEST_CLIENT_IP_SECRET,
     ...overrides,
+    // generous by default; a test that is about limits lowers exactly the ones it needs
+    rateLimit: {
+      perMinute: 10_000,
+      authPerMinute: 10_000,
+      wsConnectsPerMinute: 10_000,
+      wsMessagesPer10s: 100_000,
+      wsMaxConnectionsPerIp: 10_000,
+      ...overrides.rateLimit,
+    },
   };
 };
 

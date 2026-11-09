@@ -2,6 +2,7 @@ export * from './activity';
 export * from './attachments';
 export * from './auth';
 export * from './boards';
+export * from './client-ip';
 export * from './comments';
 export * from './common';
 export * from './errors';

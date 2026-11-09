@@ -47,8 +47,14 @@ const schema = z.object({
   // Signed download links live five minutes (assignment requirement).
   DOWNLOAD_LINK_TTL_SECONDS: z.coerce.number().int().min(1).max(3600).default(300),
 
+  // Secret: vouches for the visitor address on calls from the Next.js server. No default.
+  CLIENT_IP_SECRET: z.string().min(16),
+
   RATE_LIMIT_PER_MINUTE: z.coerce.number().int().min(1).default(300),
   AUTH_RATE_LIMIT_PER_MINUTE: z.coerce.number().int().min(1).default(10),
+  WS_CONNECTS_PER_MINUTE: z.coerce.number().int().min(1).default(30),
+  WS_MESSAGES_PER_10S: z.coerce.number().int().min(1).default(600),
+  WS_MAX_CONNECTIONS_PER_IP: z.coerce.number().int().min(1).default(20),
 });
 
 const load = (): AppConfig => {
@@ -77,7 +83,14 @@ const load = (): AppConfig => {
       secretKey: v.MINIO_ROOT_PASSWORD,
     },
     downloadLinkTtlSeconds: v.DOWNLOAD_LINK_TTL_SECONDS,
-    rateLimit: { perMinute: v.RATE_LIMIT_PER_MINUTE, authPerMinute: v.AUTH_RATE_LIMIT_PER_MINUTE },
+    clientIpSecret: v.CLIENT_IP_SECRET,
+    rateLimit: {
+      perMinute: v.RATE_LIMIT_PER_MINUTE,
+      authPerMinute: v.AUTH_RATE_LIMIT_PER_MINUTE,
+      wsConnectsPerMinute: v.WS_CONNECTS_PER_MINUTE,
+      wsMessagesPer10s: v.WS_MESSAGES_PER_10S,
+      wsMaxConnectionsPerIp: v.WS_MAX_CONNECTIONS_PER_IP,
+    },
   };
 };
 

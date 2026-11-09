@@ -78,6 +78,42 @@ jobs:
             echo
           done
 
+      # Everything below goes through nginx on the public address, as a browser would.
+      - uses: actions/setup-node@v4
+        with:
+          node-version-file: .nvmrc
+
+      - name: Install the smoke test
+        run: |
+          npm install -g pnpm@12.6.0
+          pnpm install --frozen-lockfile --filter @kanban/e2e...
+
+      - name: Smoke test through nginx (upload, download, WebSocket, limits with forged headers)
+        run: pnpm --filter @kanban/e2e smoke
+
+      # Acceptance check 16: recreating the API containers (new IP addresses) must not need an
+      # nginx restart. The old addresses are occupied first, so the new containers really move.
+      - name: Recreate the API containers under a running nginx
+        run: |
+          nginx_id=$(docker compose ps -q nginx)
+          started=$(docker inspect -f '{{.State.StartedAt}}' "$nginx_id")
+          ip_of() { docker inspect -f '{{range .NetworkSettings.Networks}}{{.IPAddress}}{{end}}' "$(docker compose ps -q "$1")"; }
+          old1=$(ip_of api1); old2=$(ip_of api2)
+          network=$(docker inspect -f '{{range $k, $v := .NetworkSettings.Networks}}{{$k}}{{end}}' "$nginx_id")
+          docker compose rm -sf api1 api2
+          for n in 1 2; do docker run -d --rm --network "$network" --name "squat$n" alpine sleep 300 >/dev/null; done
+          docker compose up -d --no-deps api1 api2
+          echo "api1: $old1 -> $(ip_of api1), api2: $old2 -> $(ip_of api2)"
+          test "$old1" != "$(ip_of api1)"
+          ok=0
+          for _ in $(seq 1 60); do
+            if [ "$(curl -s -o /dev/null -w '%{http_code}' http://localhost:8080/api/ready)" = "200" ]; then ok=1; break; fi
+            sleep 1
+          done
+          docker rm -f squat1 squat2 >/dev/null 2>&1 || true
+          test "$ok" = "1"
+          test "$started" = "$(docker inspect -f '{{.State.StartedAt}}' "$nginx_id")"
+
       # Socket.IO must be present in the built image and WebSocket-only (no long-polling fallback).
       - name: Socket.IO is served by the built image
         run: |
