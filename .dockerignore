@@ -1,0 +1,12 @@
+.git
+**/node_modules
+**/dist
+**/.next
+**/coverage
+**/test-results
+**/playwright-report
+# Never send secrets into the build context or the image.
+.env
+.env.*
+!.env.example
+*.md

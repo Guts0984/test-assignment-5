@@ -1,0 +1,47 @@
+# Full stack definition. Services are added block by block; see README for the final layout.
+# All configuration comes from .env (see .env.example); there are no secrets in this file.
+services:
+  postgres:
+    image: postgres:16-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:?POSTGRES_USER is required, see .env.example}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?POSTGRES_PASSWORD is required, see .env.example}
+      POSTGRES_DB: ${POSTGRES_DB:?POSTGRES_DB is required, see .env.example}
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ['CMD-SHELL', 'pg_isready -U "$$POSTGRES_USER" -d "$$POSTGRES_DB"']
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+  # One-shot: applies migrations and creates the demo data, then exits. Safe to run again.
+  # Other services will wait for it with `condition: service_completed_successfully`.
+  init:
+    build:
+      context: .
+      dockerfile: packages/db/Dockerfile
+    restart: 'no'
+    depends_on:
+      postgres:
+        condition: service_healthy
+    volumes:
+      # The app reads its configuration only from this file (see packages/db/src/env.ts).
+      - ./.env:/app/.env:ro
+
+  # Development helper, started only when COMPOSE_PROFILES=dev is set in .env.
+  # Forwards a host port (127.0.0.1 only) to PostgreSQL. Not part of the real stack.
+  postgres-expose:
+    image: alpine/socat:1.8.0.3
+    profiles: [dev]
+    restart: unless-stopped
+    command: TCP-LISTEN:5432,fork,reuseaddr TCP:postgres:5432
+    depends_on:
+      postgres:
+        condition: service_healthy
+    ports:
+      - '127.0.0.1:${POSTGRES_HOST_PORT:-5432}:5432'
+
+volumes:
+  postgres-data:
