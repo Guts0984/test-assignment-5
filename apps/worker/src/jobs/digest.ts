@@ -4,13 +4,28 @@ import {
   cards,
   emailDeliveries,
   users,
+  workspaceMembers,
   type Transaction,
 } from '@kanban/db';
-import { and, asc, eq, inArray, isNull, max, min, sql } from 'drizzle-orm';
+import { and, asc, eq, inArray, isNull, lte, max, min, sql } from 'drizzle-orm';
 
 import type { Deps } from '../deps';
 import { excerptOf } from '../mail/render';
 import { digestJobOptions } from '../queues';
+
+/**
+ * A mention may only be reported to someone who is a member of the comment's workspace NOW, and
+ * has been one since before the mention was made. A removed member loses access at once, so the
+ * comment text and card titles of that workspace must not reach their mailbox; and when they are
+ * invited back later, mentions from before the new membership stay out (a new membership is a new
+ * row, so its `createdAt` is the moment they came back). Filtered mentions are simply never
+ * claimed: nothing is scheduled or sent for them, and no state has to be kept about them.
+ */
+const stillMember = and(
+  eq(workspaceMembers.workspaceId, comments.workspaceId),
+  eq(workspaceMembers.userId, commentMentions.userId),
+  lte(workspaceMembers.createdAt, commentMentions.createdAt),
+);
 
 export type DigestResult = 'created' | 'too_early' | 'nothing';
 
@@ -27,6 +42,7 @@ export const scanMentions = async (deps: Deps): Promise<number> => {
     .from(commentMentions)
     .innerJoin(comments, eq(comments.id, commentMentions.commentId))
     .innerJoin(cards, and(eq(cards.id, comments.cardId), isNull(cards.deletedAt)))
+    .innerJoin(workspaceMembers, stillMember)
     .where(isNull(commentMentions.deliveryId))
     .groupBy(commentMentions.userId);
   if (waiting.length === 0) return 0;
@@ -91,6 +107,7 @@ export const buildDigest = async (deps: Deps, userId: string): Promise<DigestRes
       .select({
         commentId: commentMentions.commentId,
         body: comments.body,
+        workspaceId: comments.workspaceId,
         cardId: cards.id,
         boardId: cards.boardId,
         cardTitle: cards.title,
@@ -101,6 +118,7 @@ export const buildDigest = async (deps: Deps, userId: string): Promise<DigestRes
       .innerJoin(comments, eq(comments.id, commentMentions.commentId))
       .innerJoin(cards, and(eq(cards.id, comments.cardId), isNull(cards.deletedAt)))
       .innerJoin(users, eq(users.id, comments.authorId))
+      .innerJoin(workspaceMembers, stillMember)
       .where(and(eq(commentMentions.userId, userId), isNull(commentMentions.deliveryId)))
       .orderBy(asc(commentMentions.createdAt), asc(commentMentions.commentId));
     const first = rows[0];
@@ -121,6 +139,7 @@ export const buildDigest = async (deps: Deps, userId: string): Promise<DigestRes
         dedupeKey: `digest:${userId}:${first.commentId}`,
         payload: {
           mentions: rows.map((row) => ({
+            workspaceId: row.workspaceId,
             cardTitle: row.cardTitle,
             authorName: row.authorName,
             authorHandle: row.authorHandle,

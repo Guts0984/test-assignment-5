@@ -8,8 +8,10 @@ import {
   emailDeliveries,
   postgresUrl,
   users,
+  workspaceMembers,
   type DatabaseHandle,
 } from '@kanban/db';
+import { and, eq } from 'drizzle-orm';
 import { inject } from 'vitest';
 
 import type { WorkerConfig } from '../../src/config';
@@ -181,7 +183,27 @@ export const makeUser = async (label: string) => {
   return user;
 };
 
-/** A comment by `author` on `cardId` that mentions each of `mentioned`. */
+/** Makes `user` an editor of the workspace (a no-op if they already are a member). */
+export const join = async (workspaceId: string, user: { id: string }) => {
+  await testDb()
+    .db.insert(workspaceMembers)
+    .values({ workspaceId, userId: user.id, role: 'editor' })
+    .onConflictDoNothing();
+};
+
+/** What removing a member does in the api: their membership row is deleted. */
+export const removeMember = async (workspaceId: string, user: { id: string }) => {
+  await testDb()
+    .db.delete(workspaceMembers)
+    .where(
+      and(eq(workspaceMembers.workspaceId, workspaceId), eq(workspaceMembers.userId, user.id)),
+    );
+};
+
+/**
+ * A comment by `author` on `cardId` that mentions each of `mentioned`. As in the api, only
+ * workspace members can be mentioned, so the mentioned users are made members first.
+ */
 export const mention = async (
   fixture: { workspaceId: string },
   cardId: string,
@@ -189,6 +211,7 @@ export const mention = async (
   mentioned: { id: string }[],
   body = 'please take a look',
 ) => {
+  for (const person of mentioned) await join(fixture.workspaceId, person);
   const [comment] = await testDb()
     .db.insert(comments)
     .values({ workspaceId: fixture.workspaceId, cardId, authorId: author.id, body })

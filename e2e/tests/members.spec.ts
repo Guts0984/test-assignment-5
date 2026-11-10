@@ -3,6 +3,7 @@ import { request } from '@playwright/test';
 import { apiAs, createBoard, json, workspaceId } from '../src/support/api';
 import { BASE_URL } from '../src/support/env';
 import { openBoard } from '../src/support/board';
+import { inviteTokenFor } from '../src/support/mailpit';
 import { expect, test } from '../src/support/test';
 
 test('removing a member cuts them off at once, even in a board they have open', async ({
@@ -29,8 +30,7 @@ test('removing a member cuts them off at once, even in a board they have open', 
   await json(
     await owner.post(`/api/workspaces/${wsId}/invites`, { data: { email, role: 'editor' } }),
   );
-  const [invite] = await json<{ id: string }[]>(await stranger.get('/api/me/invites'));
-  await json(await stranger.post(`/api/me/invites/${invite!.id}/accept`));
+  await json(await stranger.post(`/api/invites/${await inviteTokenFor(email)}/accept`));
 
   const context = await browser.newContext({ storageState: await stranger.storageState() });
   const member = await context.newPage();
@@ -75,8 +75,7 @@ test('an owner changes a role in the settings and removes a member, using the pa
   await json(
     await owner.post(`/api/workspaces/${wsId}/invites`, { data: { email, role: 'viewer' } }),
   );
-  const [invite] = await json<{ id: string }[]>(await person.get('/api/me/invites'));
-  await json(await person.post(`/api/me/invites/${invite!.id}/accept`));
+  await json(await person.post(`/api/invites/${await inviteTokenFor(email)}/accept`));
 
   const { page } = await as('alice');
   await page.goto(`/workspaces/${wsId}/settings`);

@@ -54,6 +54,7 @@ const schema = z.object({
   AUTH_RATE_LIMIT_PER_MINUTE: z.coerce.number().int().min(1).default(10),
   WS_CONNECTS_PER_MINUTE: z.coerce.number().int().min(1).default(30),
   WS_MESSAGES_PER_10S: z.coerce.number().int().min(1).default(600),
+  WS_JOINS_PER_10S: z.coerce.number().int().min(1).default(30),
   WS_MAX_CONNECTIONS_PER_IP: z.coerce.number().int().min(1).default(20),
 });
 
@@ -89,6 +90,7 @@ const load = (): AppConfig => {
       authPerMinute: v.AUTH_RATE_LIMIT_PER_MINUTE,
       wsConnectsPerMinute: v.WS_CONNECTS_PER_MINUTE,
       wsMessagesPer10s: v.WS_MESSAGES_PER_10S,
+      wsJoinsPer10s: v.WS_JOINS_PER_10S,
       wsMaxConnectionsPerIp: v.WS_MAX_CONNECTIONS_PER_IP,
     },
   };

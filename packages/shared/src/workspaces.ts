@@ -58,14 +58,3 @@ export type InvitePreview = z.infer<typeof invitePreviewSchema>;
 
 export const updateMemberBodySchema = z.object({ role: workspaceRoleSchema });
 export type UpdateMemberBody = z.infer<typeof updateMemberBodySchema>;
-
-/** An invitation addressed to the signed-in user's own email, shown in the app so it can be accepted without the email. */
-export const myInviteSchema = z.object({
-  id: idSchema,
-  workspaceId: idSchema,
-  workspaceName: z.string(),
-  role: inviteRoleSchema,
-  invitedBy: z.string(),
-  expiresAt: timestampSchema,
-});
-export type MyInvite = z.infer<typeof myInviteSchema>;

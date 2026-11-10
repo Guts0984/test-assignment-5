@@ -30,6 +30,11 @@ export type AppConfig = {
     wsConnectsPerMinute: number;
     /** Socket.IO: messages per address per 10 seconds over ALL its connections, shared by all instances. */
     wsMessagesPer10s: number;
+    /**
+     * Socket.IO: board.join (builds a whole board snapshot) per address, and per user, per 10
+     * seconds over ALL their connections, shared by all instances.
+     */
+    wsJoinsPer10s: number;
     /** Socket.IO: simultaneous connections per address on one instance. */
     wsMaxConnectionsPerIp: number;
   };

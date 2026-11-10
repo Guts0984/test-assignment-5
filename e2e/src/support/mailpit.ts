@@ -28,3 +28,11 @@ export const waitForEmail = async (
   }
   throw new Error(`no email arrived for ${address} within ${timeoutMs / 1000}s`);
 };
+
+/** Reads the invitation mail sent to `address` and returns the token from its link. */
+export const inviteTokenFor = async (address: string): Promise<string> => {
+  const mail = await waitForEmail(address);
+  const token = mail.text.match(/\/invite\/([\w-]+)/)?.[1];
+  if (!token) throw new Error(`no invitation link in the email to ${address}`);
+  return token;
+};

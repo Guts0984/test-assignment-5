@@ -55,8 +55,9 @@ The seed creates 2 workspaces and 3 boards of 5 columns each. The board "Roadmap
 cards. Anyone who registers can also create a workspace of their own and becomes its owner:
 roles are per workspace.
 
-Invitations are emailed (read them in Mailpit) and also appear inside the app for the invited
-account, so they can be accepted without the email.
+Invitations are emailed (read them in Mailpit); the link in the email is the only way to accept one.
+Registration does not verify email addresses, so the address alone is never enough to join a
+workspace: the secret token from the email is required, and the account must have the invited address.
 
 ### Configuration
 

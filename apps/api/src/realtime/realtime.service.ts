@@ -12,6 +12,7 @@ import { readCookie } from '../auth/auth.guard';
 import { type AuthUser, SESSION_COOKIE } from '../auth/auth-user';
 import { SessionService } from '../auth/session.service';
 import { BoardsService } from '../boards/boards.service';
+import { AppError } from '../common/app-error';
 import type { AppConfig } from '../config';
 import { APP_CONFIG, DATABASE, REDIS } from '../infra/tokens';
 import { clientIpOf } from '../rate-limit/client-ip';
@@ -31,11 +32,19 @@ type SocketData = {
   tokens: number;
   refilledAt: number;
   dropped: number;
+  /** Separate, much smaller budget for board.join: it is the one expensive message. */
+  joinTokens: number;
+  joinRefilledAt: number;
+  /** Joins being served right now, so a repeated join of the same board shares the work. */
+  joining: Map<string, Promise<JoinResult>>;
 };
 
 const BUCKET_CAPACITY = 30;
 const REFILL_PER_SECOND = 15;
 /** After this many dropped messages the connection is closed. */
+/** One socket may join this many boards in a burst, then one more every JOIN_REFILL_SECONDS. */
+const JOIN_BURST = 5;
+const JOIN_REFILL_SECONDS = 2;
 const MAX_DROPPED = 100;
 const MAX_BOARDS_PER_SOCKET = 20;
 const SWEEP_INTERVAL_MS = 1_000;
@@ -174,6 +183,9 @@ export class RealtimeService implements OnModuleDestroy {
         tokens: BUCKET_CAPACITY,
         refilledAt: Date.now(),
         dropped: 0,
+        joinTokens: JOIN_BURST,
+        joinRefilledAt: Date.now(),
+        joining: new Map(),
       } satisfies SocketData;
       next();
     } catch {
@@ -267,15 +279,74 @@ export class RealtimeService implements OnModuleDestroy {
     if (!parsed.success) return reply({ ok: false, error: 'not_found' });
     const { boardId } = parsed.data;
     const data = dataOf(socket);
-    if (!data.boards.has(boardId) && data.boards.size >= MAX_BOARDS_PER_SOCKET)
-      return reply({ ok: false, error: 'rate_limited' });
 
+    // Every message pays this socket's own allowance, even one that only shares an answer being
+    // built: sending a 450 KB snapshot over and over is expensive too.
+    if (!this.takeJoinToken(socket)) return reply({ ok: false, error: 'rate_limited' });
+
+    // The same board asked for again while the first answer is still being built: share it.
+    const running = data.joining.get(boardId);
+    if (running) return reply(await running);
+
+    // Registered before anything is awaited, so the next identical join finds it.
+    const work = this.admitAndJoin(socket, boardId);
+    data.joining.set(boardId, work);
+    try {
+      reply(await work);
+    } finally {
+      data.joining.delete(boardId);
+    }
+  }
+
+  private async admitAndJoin(socket: Socket, boardId: string): Promise<JoinResult> {
+    const data = dataOf(socket);
+    // Cheap refusals first, before any database work: the snapshot is by far the most expensive
+    // thing a client can ask for.
+    if (!data.boards.has(boardId) && data.boards.size >= MAX_BOARDS_PER_SOCKET)
+      return { ok: false, error: 'rate_limited' };
+    // Then the visitor's and the user's shared allowances (counted across all instances).
+    const limit = this.config.rateLimit.wsJoinsPer10s;
+    for (const key of [`rl:ws-join:ip:${data.ip}`, `rl:ws-join:user:${data.user.id}`]) {
+      if (!(await this.limiter.hit(key, limit, 10_000)).allowed) {
+        this.noteDrop(socket);
+        return { ok: false, error: 'rate_limited' };
+      }
+    }
+    return this.join(socket, boardId);
+  }
+
+  /** Token bucket just for joins: a small burst, then one every JOIN_REFILL_SECONDS. */
+  private takeJoinToken(socket: Socket): boolean {
+    const data = dataOf(socket);
+    const now = Date.now();
+    data.joinTokens = Math.min(
+      JOIN_BURST,
+      data.joinTokens + (now - data.joinRefilledAt) / 1000 / JOIN_REFILL_SECONDS,
+    );
+    data.joinRefilledAt = now;
+    if (data.joinTokens < 1) {
+      this.noteDrop(socket);
+      return false;
+    }
+    data.joinTokens -= 1;
+    return true;
+  }
+
+  private async join(socket: Socket, boardId: string): Promise<JoinResult> {
+    const data = dataOf(socket);
     const wasJoined = data.boards.has(boardId);
     try {
       const { workspaceId } = await this.access
         .requireForBoard(data.user.id, boardId, 'viewer')
-        .catch(() => {
-          throw new NotAllowed();
+        .catch((error: unknown) => {
+          // Only a real "no such board / not your workspace" answer means not found; anything
+          // else (the database is down, a timeout) is a fault and must not look like one.
+          if (
+            error instanceof AppError &&
+            (error.code === 'not_found' || error.code === 'forbidden')
+          )
+            throw new NotAllowed();
+          throw error;
         });
       // Subscribe first, then read: nothing that happens in between can be missed.
       await socket.join(boardRoom(boardId));
@@ -291,14 +362,18 @@ export class RealtimeService implements OnModuleDestroy {
       });
       const users = await this.presence.snapshot(boardId);
       this.broadcastPresence(boardId, users);
-      reply({ ok: true, snapshot, presence: users, lastEventId: last ?? 0 });
+      return { ok: true, snapshot, presence: users, lastEventId: last ?? 0 };
     } catch (error) {
+      if (!(error instanceof NotAllowed))
+        this.logger.warn(
+          `board.join failed: ${error instanceof Error ? error.message : String(error)}`,
+        );
       // A join that failed half way must leave nothing behind (room, board record, presence entry).
       // But a failed RE-join of a board the socket was already watching must not throw away a
       // working subscription, unless the reason is that access is gone.
       if (error instanceof NotAllowed || !wasJoined)
         await this.leaveBoard(socket, boardId).catch(() => undefined);
-      reply({ ok: false, error: error instanceof NotAllowed ? 'not_found' : 'unavailable' });
+      return { ok: false, error: error instanceof NotAllowed ? 'not_found' : 'unavailable' };
     }
   }
 

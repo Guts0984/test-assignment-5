@@ -1,6 +1,7 @@
 import { randomUUID } from 'node:crypto';
 
 import {
+  CopyObjectCommand,
   DeleteObjectCommand,
   GetObjectCommand,
   HeadObjectCommand,
@@ -43,14 +44,18 @@ const toAttachment = (row: typeof attachments.$inferSelect): Attachment => ({
   createdAt: row.createdAt.toISOString(),
 });
 
-/** A file name that is safe inside a Content-Disposition header. */
+const isMissing = (error: unknown): boolean => {
+  const failed = error as { name?: string; $metadata?: { httpStatusCode?: number } };
+  return (
+    failed.name === 'NotFound' ||
+    failed.name === 'NoSuchKey' ||
+    failed.$metadata?.httpStatusCode === 404
+  );
+};
+
 const asciiFallback = (name: string): string =>
   name.replace(/[^\w.\- ()]/g, '_').slice(0, 100) || 'download';
 
-/**
- * The `filename*` parameter (RFC 5987 / 8187) allows only letters, digits and !#$&+-.^_`|~ unescaped.
- * encodeURIComponent also leaves ' ( ) * alone, which that syntax does not allow.
- */
 const encodeFilenameStar = (name: string): string =>
   encodeURIComponent(name).replace(
     /['()*]/g,
@@ -71,11 +76,6 @@ export class AttachmentsService {
     @Inject(BoardEvents) private readonly events: BoardEvents,
   ) {}
 
-  /**
-   * Step 1: register the upload. The browser then sends the file straight to object storage with
-   * the returned form; storage itself enforces the size limit and the declared content type.
-   * The row stays `pending` (and the worker removes it after an hour) until `complete`.
-   */
   async create(
     user: AuthUser,
     cardId: string,
@@ -122,10 +122,6 @@ export class AttachmentsService {
     };
   }
 
-  /**
-   * Step 2: verify what was actually uploaded. The type is decided from the file's own bytes,
-   * never from its name or the declared type; anything that is not an image or a PDF is deleted.
-   */
   async complete(user: AuthUser, attachmentId: string): Promise<Attachment> {
     const ref = await this.access.requireForAttachment(user.id, attachmentId, 'editor');
     const [row] = await this.database.db
@@ -141,12 +137,7 @@ export class AttachmentsService {
       const head = await this.s3.send(new HeadObjectCommand({ Bucket, Key: row.objectKey }));
       size = head.ContentLength ?? 0;
     } catch (error) {
-      if (
-        (error as { name?: string }).name === 'NotFound' ||
-        (error as { $metadata?: { httpStatusCode?: number } }).$metadata?.httpStatusCode === 404
-      ) {
-        throw new AppError('conflict', 'The file has not been uploaded yet');
-      }
+      if (isMissing(error)) return this.missingUpload(attachmentId);
       throw error;
     }
     if (size < 1 || size > LIMITS.attachmentBytes) {
@@ -154,10 +145,17 @@ export class AttachmentsService {
       throw new AppError('payload_too_large', 'The file is larger than the 10 MB limit');
     }
 
-    const head = await this.s3.send(
-      new GetObjectCommand({ Bucket, Key: row.objectKey, Range: `bytes=0-${SNIFF_BYTES - 1}` }),
-    );
+    let head;
+    try {
+      head = await this.s3.send(
+        new GetObjectCommand({ Bucket, Key: row.objectKey, Range: `bytes=0-${SNIFF_BYTES - 1}` }),
+      );
+    } catch (error) {
+      if (isMissing(error)) return this.missingUpload(attachmentId);
+      throw error;
+    }
     const bytes = (await head.Body?.transformToByteArray()) ?? new Uint8Array();
+    const checkedVersion = head.ETag; // fingerprint of exactly the object whose bytes we just read
     const detected = await fileTypeFromBuffer(bytes);
     if (!detected || !(ALLOWED_CONTENT_TYPES as readonly string[]).includes(detected.mime)) {
       await this.discard(row);
@@ -167,10 +165,36 @@ export class AttachmentsService {
       );
     }
 
+    const finalKey = `${ref.workspaceId}/${ref.cardId}/${randomUUID()}`;
+    try {
+      await this.s3.send(
+        new CopyObjectCommand({
+          Bucket,
+          Key: finalKey,
+          CopySource: `${Bucket}/${row.objectKey}`,
+          CopySourceIfMatch: checkedVersion,
+          ContentType: detected.mime,
+          MetadataDirective: 'REPLACE',
+        }),
+      );
+    } catch (error) {
+      if (isMissing(error)) return this.missingUpload(attachmentId);
+      const failed = error as { name?: string; $metadata?: { httpStatusCode?: number } };
+      if (failed.name === 'PreconditionFailed' || failed.$metadata?.httpStatusCode === 412) {
+        await this.discard(row);
+        throw new AppError(
+          'conflict',
+          'The file changed while it was being checked. Please upload it again.',
+        );
+      }
+      throw error;
+    }
+
     const outcome = await this.database.db.transaction(async (tx) => {
       const [ready] = await tx
         .update(attachments)
         .set({
+          objectKey: finalKey,
           status: 'ready',
           detectedType: detected.mime,
           sizeBytes: size,
@@ -191,6 +215,8 @@ export class AttachmentsService {
       return { attachment: toAttachment(ready), eventId };
     });
 
+    // Whichever copy is not the stored one is no longer needed.
+    await this.removeObject(outcome ? row.objectKey : finalKey);
     if (!outcome) {
       const [current] = await this.database.db
         .select()
@@ -241,6 +267,31 @@ export class AttachmentsService {
       { expiresIn: ttl },
     );
     return { url, expiresAt: new Date(Date.now() + ttl * 1000).toISOString() };
+  }
+
+  /**
+   * The upload object is gone. Either another request completed this attachment a moment ago (it
+   * moves the object and deletes the upload copy), which is a success for this one too, or the
+   * file was never uploaded.
+   */
+  private async missingUpload(attachmentId: string): Promise<Attachment> {
+    const [done] = await this.database.db
+      .select()
+      .from(attachments)
+      .where(and(eq(attachments.id, attachmentId), eq(attachments.status, 'ready')));
+    if (done) return toAttachment(done);
+    throw new AppError('conflict', 'The file has not been uploaded yet');
+  }
+
+  private async removeObject(key: string): Promise<void> {
+    try {
+      await this.s3.send(new DeleteObjectCommand({ Bucket: this.config.s3.bucket, Key: key }));
+    } catch (error) {
+      // The worker's cleanup does not know this key, but a leftover object is only wasted space.
+      this.logger.warn(
+        `could not delete ${key}: ${error instanceof Error ? error.message : String(error)}`,
+      );
+    }
   }
 
   /** Removes a rejected upload completely: the object and the row. */

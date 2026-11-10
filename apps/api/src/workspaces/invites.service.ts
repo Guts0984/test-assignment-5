@@ -9,13 +9,7 @@ import {
   type DatabaseHandle,
   type Transaction,
 } from '@kanban/db';
-import type {
-  CreateInviteBody,
-  Invite,
-  InvitePreview,
-  MyInvite,
-  WorkspaceRole,
-} from '@kanban/shared';
+import type { CreateInviteBody, Invite, InvitePreview, WorkspaceRole } from '@kanban/shared';
 import { Inject, Injectable } from '@nestjs/common';
 import { and, eq, gt, isNull } from 'drizzle-orm';
 
@@ -139,7 +133,7 @@ export class InvitesService {
     };
   }
 
-  /** The signed-in user must own the invited address. Accepting is atomic: one winner. */
+  /** Needs the emailed token (the only proof of owning the address: registration does not verify email) and an account with the invited address. Atomic: one winner. */
   async accept(
     user: AuthUser,
     token: string,
@@ -191,61 +185,5 @@ export class InvitesService {
         ),
       );
     return { workspaceId: invite.workspaceId, role: member?.role ?? invite.role };
-  }
-
-  /** Open invitations sent to the signed-in user's own email address (nobody else's). */
-  async listMine(user: AuthUser): Promise<MyInvite[]> {
-    const rows = await this.database.db
-      .select({
-        id: workspaceInvites.id,
-        workspaceId: workspaceInvites.workspaceId,
-        workspaceName: workspaces.name,
-        role: workspaceInvites.role,
-        invitedBy: users.name,
-        expiresAt: workspaceInvites.expiresAt,
-      })
-      .from(workspaceInvites)
-      .innerJoin(workspaces, eq(workspaces.id, workspaceInvites.workspaceId))
-      .innerJoin(users, eq(users.id, workspaceInvites.invitedBy))
-      .where(
-        and(
-          eq(workspaceInvites.email, user.email),
-          isNull(workspaceInvites.acceptedAt),
-          gt(workspaceInvites.expiresAt, new Date()),
-        ),
-      )
-      .orderBy(workspaceInvites.createdAt);
-    return rows.flatMap((row) =>
-      row.role === 'owner'
-        ? []
-        : [{ ...row, role: row.role, expiresAt: row.expiresAt.toISOString() }],
-    );
-  }
-
-  /**
-   * Accept one of my own open invitations from inside the app, without the emailed link. Only an
-   * invitation addressed to my email can be accepted; anyone else's looks like it does not exist.
-   */
-  async acceptMine(
-    user: AuthUser,
-    inviteId: string,
-  ): Promise<{ workspaceId: string; role: WorkspaceRole }> {
-    return this.database.db.transaction(async (tx) => {
-      const [invite] = await tx
-        .select()
-        .from(workspaceInvites)
-        .where(
-          and(
-            eq(workspaceInvites.id, inviteId),
-            eq(workspaceInvites.email, user.email),
-            isNull(workspaceInvites.acceptedAt),
-            gt(workspaceInvites.expiresAt, new Date()),
-          ),
-        )
-        .for('update')
-        .limit(1);
-      if (!invite) throw new AppError('not_found', 'Not found');
-      return this.consume(tx, invite, user);
-    });
   }
 }

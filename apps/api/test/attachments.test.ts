@@ -460,3 +460,30 @@ describe('download links', () => {
     expect(decodeURIComponent(encoded)).toBe(name);
   });
 });
+
+describe('the upload form after the file was checked', () => {
+  it('cannot be used again to swap the checked image for an executable', async () => {
+    const cardId = await newCard();
+    const created = await register(bob, cardId, {
+      fileName: 'invoice.png',
+      contentType: 'image/png',
+      sizeBytes: 5_000, // room for both files below
+    });
+    const { attachment, upload: form } = createAttachmentResponseSchema.parse(created.body);
+    expect((await upload(form, PNG)).status).toBeLessThan(300);
+    const done = await call(url(`/attachments/${attachment.id}/complete`), asJson(bob, 'POST', {}));
+    expect(done.status, JSON.stringify(done.body)).toBeLessThan(300);
+
+    // The same signed form, submitted a second time (it is valid for ten minutes). Storage itself
+    // accepts it, which is why the swap has to be harmless for everybody who downloads.
+    const second = await upload(form, EXE);
+    expect(second.status, await second.clone().text()).toBeLessThan(300);
+
+    const link = downloadLinkSchema.parse(
+      (await call(url(`/attachments/${attachment.id}/download`), as(carol))).body,
+    );
+    const served = await fetch(link.url);
+    expect(served.headers.get('content-type')).toBe('image/png');
+    expect(Buffer.from(await served.arrayBuffer()).equals(PNG)).toBe(true); // the checked bytes, not the exe
+  });
+});

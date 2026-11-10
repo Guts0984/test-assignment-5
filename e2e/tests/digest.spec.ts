@@ -2,7 +2,7 @@ import { request } from '@playwright/test';
 
 import { addCard, apiAs, createBoard, json, workspaceId } from '../src/support/api';
 import { BASE_URL, MAILPIT_URL } from '../src/support/env';
-import { messagesTo, waitForEmail } from '../src/support/mailpit';
+import { inviteTokenFor, messagesTo, waitForEmail } from '../src/support/mailpit';
 import { expect, test } from '../src/support/test';
 
 test('five mentions of one person within a minute arrive as ONE email', async ({ browserName }) => {
@@ -28,8 +28,7 @@ test('five mentions of one person within a minute arrive as ONE email', async ({
   await json(
     await owner.post(`/api/workspaces/${wsId}/invites`, { data: { email, role: 'editor' } }),
   );
-  const [invite] = await json<{ id: string }[]>(await person.get('/api/me/invites'));
-  await json(await person.post(`/api/me/invites/${invite!.id}/accept`));
+  await json(await person.post(`/api/invites/${await inviteTokenFor(email)}/accept`));
   await waitForEmail(email); // the invitation itself is an email too; it is not the digest
 
   for (let i = 1; i <= 5; i += 1) {

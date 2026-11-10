@@ -1,6 +1,7 @@
 import { request, type APIRequestContext } from '@playwright/test';
 
 import { authFile, BASE_URL, type Role } from './env';
+import { inviteTokenFor } from './mailpit';
 
 export type Column = { id: string; name: string };
 
@@ -83,9 +84,7 @@ export const registerViewerInAcme = async (
   );
   const own = await request.newContext({ baseURL: BASE_URL });
   await json(await own.post('/api/auth/login', { data: user }));
-  const invites = await json<{ id: string }[]>(await own.get('/api/me/invites'));
-  for (const invite of invites)
-    await json(await own.post(`/api/me/invites/${invite.id}/accept`, { data: {} }));
+  await json(await own.post(`/api/invites/${await inviteTokenFor(user.email)}/accept`));
   await own.dispose();
   await alice.dispose();
   return user;

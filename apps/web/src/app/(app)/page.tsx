@@ -1,19 +1,15 @@
-import type { MyInvite, WorkspaceSummary } from '@kanban/shared';
+import type { WorkspaceSummary } from '@kanban/shared';
 import Link from 'next/link';
 
-import { NewBoardButton, NewWorkspaceButton, PendingInvites } from '@/features/workspaces';
+import { NewBoardButton, NewWorkspaceButton } from '@/features/workspaces';
 import { loadPrivate } from '@/shared/lib/server-api';
 
 export const metadata = { title: 'Your boards' };
 
 export default async function HomePage() {
-  const [workspaces, invites] = await Promise.all([
-    loadPrivate<WorkspaceSummary[]>('/workspaces'),
-    loadPrivate<MyInvite[]>('/me/invites'),
-  ]);
+  const workspaces = await loadPrivate<WorkspaceSummary[]>('/workspaces');
   return (
     <main className="mx-auto grid max-w-3xl gap-6 p-6">
-      <PendingInvites invites={invites} />
       <div className="flex flex-wrap items-center justify-between gap-3">
         <h1 className="text-2xl font-semibold">Your workspaces</h1>
         <div className="flex flex-wrap gap-2">
@@ -27,8 +23,8 @@ export default async function HomePage() {
       </div>
       {workspaces.length === 0 ? (
         <p className="text-muted-foreground">
-          You are not in any workspace yet. Create your own with “New workspace”, or accept an
-          invitation from an owner.
+          You are not in any workspace yet. Create your own with “New workspace”, or open the
+          invitation link from your email.
         </p>
       ) : (
         workspaces.map((workspace) => (

@@ -43,6 +43,7 @@ export const testConfig = (overrides: ConfigOverrides = {}): AppConfig => {
       authPerMinute: 10_000,
       wsConnectsPerMinute: 10_000,
       wsMessagesPer10s: 100_000,
+      wsJoinsPer10s: 10_000,
       wsMaxConnectionsPerIp: 10_000,
       ...overrides.rateLimit,
     },
