@@ -42,7 +42,7 @@ test('an invitation sent from the settings page arrives by email and the link br
   ).toBeVisible();
 });
 
-test('the invitation also shows up inside the app, so it can be accepted without the email', async ({
+test('whoever registers the invited address gets nothing from the app: the emailed link is the only way in', async ({
   anonymous,
 }) => {
   const api = await apiAs('alice');
@@ -59,10 +59,12 @@ test('the invitation also shows up inside the app, so it can be accepted without
   await page.getByLabel('Password').fill(person.password);
   await page.getByRole('button', { name: 'Sign in' }).click();
 
-  await expect(page.getByRole('heading', { name: 'Invitations for you' })).toBeVisible();
-  await page.getByRole('button', { name: 'Accept the invitation to Acme Product' }).click();
-  await expect(page.getByRole('heading', { name: 'Invitations for you' })).toBeHidden();
-  await expect(page.getByRole('heading', { name: /Acme Product/ })).toBeVisible();
+  // Signed in with the invited address, but without the link: no invitation is offered, no
+  // workspace appears, and the old in-app endpoints are gone.
+  await expect(page.getByRole('heading', { name: 'Your workspaces' })).toBeVisible();
+  await expect(page.getByRole('heading', { name: 'Invitations for you' })).toHaveCount(0);
+  await expect(page.getByRole('heading', { name: /Acme Product/ })).toHaveCount(0);
+  expect((await page.request.get('/api/me/invites')).status()).toBe(404);
 });
 
 test('an invitation cannot be used by a different account', async ({ anonymous }) => {

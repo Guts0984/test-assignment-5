@@ -14,7 +14,7 @@ test('removing a member cuts them off at once, even in a board they have open', 
   const wsId = await workspaceId(owner);
   const board = await createBoard(owner, 'revoke');
 
-  // A temporary member: registers, is invited, and accepts from inside the app.
+  // A temporary member: registers, is invited, and accepts with the token from the email.
   const stranger = await request.newContext({ baseURL: BASE_URL });
   const email = `leaver-${Date.now().toString(36)}@example.com`;
   const me = await json<{ id: string }>(
